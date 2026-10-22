@@ -1,6 +1,6 @@
 # Run the experimental Muse Spark reference CLI
 
-<!-- Updated: 2026-10-16 -->
+<!-- Updated: 2026-10-21 -->
 
 `strata-muse` executes Muse Spark's text graph from existing GGUF files, using
 memory-mapped weights and bounded decoded row tiles. Build it explicitly; it is
@@ -15,8 +15,9 @@ need separate validation; a synthetic fixture cannot establish either.
 ## Build and check a synthetic model
 
 Use the normal [build environment](DETAILS.md), with the Python packages in
-[`requirements.txt`](../requirements.txt), including NumPy. No model download is
-needed for these commands. Run from the repository root:
+[`requirements.txt`](../requirements.txt), including NumPy, and CMake/Ninja from
+[`requirements-build.txt`](../requirements-build.txt) or your system packages.
+No model download is needed for these commands. Run from the repository root:
 
 ```sh
 cmake -S . -B build-muse \
