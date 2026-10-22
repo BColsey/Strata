@@ -1,6 +1,6 @@
 # Run the experimental Muse Spark reference CLI
 
-<!-- Updated: 2026-10-21 -->
+<!-- Updated: 2026-10-22 -->
 
 `strata-muse` executes Muse Spark's text graph from existing GGUF files, using
 memory-mapped weights and bounded decoded row tiles. Build it explicitly; it is
@@ -66,6 +66,8 @@ Select the architecture and device for your hardware. CUDA accelerates tiled
 matrix-vector products through cuBLAS; attention, routing, normalization and row
 dequantization remain on the CPU. This is not an optimized GPU inference engine.
 No Muse HIP, SYCL or multi-GPU path is provided.
+With a HIP engine build, Muse uses its CPU path; the gfx906 compatibility mode
+does not enable the NVIDIA adapter. Build Muse separately from the SYCL project.
 
 ## Supply your own GGUF
 
