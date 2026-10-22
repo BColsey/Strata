@@ -215,7 +215,13 @@ void allocation_failures(const std::filesystem::path& dir) {
         check(recovered.forward(1).size() == 12, "failed allocation left unusable runtime state");
     }
 }
-void production_encodings(const std::filesystem::path& dir) {
+void close_logits(const std::vector<float>& actual, const std::vector<float>& expected, const char* message) {
+    check(actual.size() == expected.size(), message);
+    for (size_t i = 0; i < actual.size(); ++i)
+        check(std::isfinite(actual[i]) && std::isfinite(expected[i]) &&
+              std::abs(actual[i] - expected[i]) <= 2e-5f + 2e-5f * std::abs(expected[i]), message);
+}
+void production_encodings(const std::filesystem::path& dir, const std::string& backend = "cpu") {
     Fixture quant, decoded;
     quant.meta["muse-spark.moe_latent_size"] = number(256);
     quant.meta["muse-spark.expert_feed_forward_length"] = number(256);
@@ -263,8 +269,63 @@ void production_encodings(const std::filesystem::path& dir) {
     }
     decoded.meta = quant.meta;
     quant.save(dir / "production-types.gguf"); decoded.save(dir / "decoded.gguf");
-    Model a((dir / "production-types.gguf").string(), 16), b((dir / "decoded.gguf").string(), 16);
-    for (auto token : {1u, 5u, 8u, 3u}) check(a.forward(token) == b.forward(token), "IQ1_S/Q6_K/Q8_0 streamed rows differ from decoded F32");
+    Model a((dir / "production-types.gguf").string(), 16, backend, 0), b((dir / "decoded.gguf").string(), 16);
+    for (auto token : {1u, 5u, 8u, 3u}) {
+        const auto actual = a.forward(token), expected = b.forward(token);
+        if (backend == "cpu") check(actual == expected, "IQ1_S/Q6_K/Q8_0 streamed rows differ from decoded F32");
+        else close_logits(actual, expected, "CUDA IQ1_S/Q6_K/Q8_0 rows differ from CPU decoded F32");
+    }
+}
+void cuda_execution(const std::filesystem::path& dir) {
+    for (bool mixed : {false, true}) {
+        Fixture f(mixed);
+        // Leave stop tokens unset for four complete greedy steps; test each
+        // marker separately below so EOS cannot mask a missing EOT check.
+        f.meta.erase("tokenizer.ggml.eos_token_id"); f.meta.erase("tokenizer.ggml.eot_token_id");
+        const auto path = dir / (mixed ? "cuda-mixed.gguf" : "cuda-f32.gguf"); f.save(path);
+        Model cpu(path.string(), 16), cuda(path.string(), 16, "cuda", 0);
+        const std::vector<uint32_t> tokens = {1, 5, 8, 3, 7, 2, 9};
+        std::vector<float> expected, actual;
+        for (auto token : tokens) {
+            expected = cpu.forward(token); actual = cuda.forward(token);
+            close_logits(actual, expected, "CUDA forced-token logits differ from CPU across local window");
+        }
+        std::vector<uint32_t> generated;
+        for (size_t step = 0; step < 4; ++step) {
+            const auto next = uint32_t(std::max_element(expected.begin(), expected.end()) - expected.begin());
+            const auto cuda_next = uint32_t(std::max_element(actual.begin(), actual.end()) - actual.begin());
+            check(cuda_next == next, "CUDA greedy token differs from CPU");
+            generated.push_back(next);
+            if (step + 1 < 4) {
+                expected = cpu.forward(next); actual = cuda.forward(cuda_next);
+                close_logits(actual, expected, "CUDA generated-token logits differ from CPU");
+            }
+        }
+        Options o; o.model = path.string(); o.backend = "cuda"; o.gpu = 0;
+        o.tokens = tokens; o.context = 16; o.steps = 4; o.logits_file = (dir / "cuda-out.json").string();
+        auto generation = [&](const std::vector<uint32_t>& want) {
+            run(o);
+            std::ifstream in(o.logits_file); std::string output((std::istreambuf_iterator<char>(in)), {});
+            std::string encoded = "\"generated_tokens\":[";
+            for (size_t i = 0; i < want.size(); ++i) {
+                if (i) encoded += ',';
+                encoded += std::to_string(want[i]);
+            }
+            encoded += ']';
+            check(output.find(encoded) != std::string::npos, "CUDA generation/EOS/EOT output differs from CPU");
+        };
+        generation(generated);
+        for (const char* key : {"tokenizer.ggml.eos_token_id", "tokenizer.ggml.eot_token_id"}) {
+            f.meta[key] = number(generated.front()); f.save(dir / "cuda-end.gguf");
+            o.model = (dir / "cuda-end.gguf").string(); generation({generated.front()});
+            f.meta.erase(key);
+        }
+        o.steps = 0; generation({});
+        std::cout << "muse_model_test: CUDA " << (mixed ? "mixed F16/Q8_0" : "F32")
+                  << " forced logits, four greedy steps, EOS/EOT and zero steps passed\n";
+    }
+    production_encodings(dir, "cuda");
+    std::cout << "muse_model_test: CUDA IQ1_S/Q6_K/Q8_0 logits match CPU decoded F32\n";
 }
 void analytic_logits(const std::filesystem::path& dir) {
     Fixture f;
@@ -392,9 +453,11 @@ void execution(const std::filesystem::path& dir) {
     rejects([&] { invalid.forward(1); }, "nonfinite weights accepted");
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
+        check(argc == 1 || (argc == 2 && std::string(argv[1]) == "--cuda"), "usage: muse_model_test [--cuda]");
         Temp tmp;
+        if (argc == 2) { cuda_execution(tmp.path); return 0; }
         arguments(); malformed(tmp.path / "bad.gguf"); execution(tmp.path);
         production_encodings(tmp.path); analytic_logits(tmp.path); extended_arrays(tmp.path);
         allocation_failures(tmp.path);
