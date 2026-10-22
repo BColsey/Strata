@@ -53,6 +53,7 @@ cmake -S . -B build-muse-cuda \
   -DCMAKE_CUDA_ARCHITECTURES=86
 cmake --build build-muse-cuda --target strata-muse muse_model_test --parallel 2
 ctest --test-dir build-muse-cuda -R '^muse_model_test$' --output-on-failure
+build-muse-cuda/src/muse/muse_model_test --cuda
 build-muse-cuda/src/muse/strata-muse \
   --model /tmp/muse-fixture/model.gguf \
   --tokens 1,5,8,3,7,2,9 --ctx 32 --steps 0 --backend cuda --gpu 0 \
@@ -68,6 +69,12 @@ dequantization remain on the CPU. This is not an optimized GPU inference engine.
 No Muse HIP, SYCL or multi-GPU path is provided.
 With a HIP engine build, Muse uses its CPU path; the gfx906 compatibility mode
 does not enable the NVIDIA adapter. Build Muse separately from the SYCL project.
+
+The CTest above uses the CPU backend. The explicit `muse_model_test --cuda`
+check runs CUDA logits, four greedy steps, EOS/EOT stops and synthetic quantized
+rows against CPU results. It uses logical device 0; set `CUDA_VISIBLE_DEVICES`
+to a GPU UUID to check one physical card. The separate NumPy comparison checks
+the full synthetic F32 logits against an independent implementation.
 
 ## Supply your own GGUF
 
