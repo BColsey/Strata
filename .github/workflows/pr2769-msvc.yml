@@ -149,8 +149,12 @@ jobs:
       - name: Compare all 448 logits using Unicode model and output paths
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
         run: |
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'evidence'
+          python -c "import sys; print(f'utf8_mode={sys.flags.utf8_mode}; stdout={sys.stdout.encoding}; stderr={sys.stderr.encoding}')" |
+            Tee-Object -FilePath "$evidence/python-io-mode.txt"
           python -m unittest discover -s tools/muse -p 'test_*.py' 2>&1 | Tee-Object -FilePath "$evidence/python-tests.log"
           if ($LASTEXITCODE -ne 0) { throw 'Muse Python checks failed' }
           $fixture = Join-Path $env:RUNNER_TEMP 'Muse-模型-данные'
