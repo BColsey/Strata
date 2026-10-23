@@ -422,8 +422,10 @@ void execution(const std::filesystem::path& dir) {
     // Split metadata-only first shard, duplicate/missing shards and bounds.
     const auto s1 = dir / "split-00001-of-00002.gguf", s2 = dir / "split-00002-of-00002.gguf";
     f.save(s1, 0); f.save(s2, 1);
-    Model sharded(s2.string(), 16);
-    check(sharded.forward(1) == reference.front(), "shard mapping differs");
+    {
+        Model sharded(s2.string(), 16);
+        check(sharded.forward(1) == reference.front(), "shard mapping differs");
+    } // Release both mappings before mutating the shards (Windows locks mapped files).
     std::filesystem::remove(s2);
     rejects([&] { Model m(s1.string(), 16); }, "missing shard accepted");
     f.save(s2, 0); rejects([&] { Model m(s1.string(), 16); }, "wrong split index accepted");
@@ -431,6 +433,7 @@ void execution(const std::filesystem::path& dir) {
     Options o; o.model = path.string(); o.logits_file = (dir / "out.json").string();
     o.tokens = {1,5,8,3,7,2,9}; o.context = 16; o.steps = 2; run(o);
     std::ifstream in(o.logits_file); std::string output((std::istreambuf_iterator<char>(in)), {});
+    in.close();
     check(output.find("\"tokens\":[1,5,8,3,7,2,9]") != std::string::npos &&
           output.find("\"logits\":[[") != std::string::npos && output.find("\"generated_tokens\":[") != std::string::npos,
           "JSON output contract");
@@ -438,6 +441,7 @@ void execution(const std::filesystem::path& dir) {
     f.meta["tokenizer.ggml.eos_token_id"] = number(generated); f.save(dir / "eos.gguf");
     o.model = (dir / "eos.gguf").string(); o.steps = 4; run(o);
     std::ifstream eos_in(o.logits_file); output.assign(std::istreambuf_iterator<char>(eos_in), {});
+    eos_in.close();
     check(output.find("\"generated_tokens\":[" + std::to_string(generated) + "]") != std::string::npos, "greedy generation did not stop at EOS");
     const size_t generated_at = output.find("\"generated_tokens\"");
     check(size_t(std::count(output.begin(), output.begin() + generated_at, '[')) == o.tokens.size() + 2,
