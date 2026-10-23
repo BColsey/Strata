@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: BColsey/Strata
-          ref: e0002b04d2575834a0659711fffb01102b1941e2
+          ref: af1c8b2706033b6878023b0a0fcdf86794e3ad7e
           path: source
           persist-credentials: false
 
@@ -42,7 +42,7 @@ jobs:
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'evidence'
           New-Item -ItemType Directory -Force $evidence | Out-Null
           $source = (git rev-parse HEAD).Trim()
-          if ($source -ne 'e0002b04d2575834a0659711fffb01102b1941e2') { throw "Unexpected source revision: $source" }
+          if ($source -ne 'af1c8b2706033b6878023b0a0fcdf86794e3ad7e') { throw "Unexpected source revision: $source" }
           $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
           $vswhere = Join-Path $pf86 'Microsoft Visual Studio\Installer\vswhere.exe'
           & $vswhere -all -products '*' -format json | Set-Content "$evidence/visual-studio-instances.json"
