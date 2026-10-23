@@ -45,8 +45,28 @@ jobs:
           if ($source -ne 'e0002b04d2575834a0659711fffb01102b1941e2') { throw "Unexpected source revision: $source" }
           $pf86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
           $vswhere = Join-Path $pf86 'Microsoft Visual Studio\Installer\vswhere.exe'
-          $vs = @(& $vswhere -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json)[0]
-          if (-not $vs) { throw 'Visual Studio 2022 C++ tools were not found' }
+          & $vswhere -all -products '*' -format json | Set-Content "$evidence/visual-studio-instances.json"
+          $vs = @(& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json)[0]
+          if (-not $vs) { throw 'Visual Studio C++ tools were not found' }
+          $devCmd = Join-Path $vs.installationPath 'Common7\Tools\VsDevCmd.bat'
+          $batch = Join-Path $env:RUNNER_TEMP 'muse-msvc-environment.cmd'
+          @('@echo off', "call `"$devCmd`" -no_logo -arch=x64 -host_arch=x64 >nul", 'if errorlevel 1 exit /b 1', 'set') |
+            Set-Content -Encoding ascii $batch
+          $toolEnvironment = & cmd.exe /d /c $batch
+          if ($LASTEXITCODE -ne 0) { throw 'Visual Studio development environment failed' }
+          $allowed = @('PATH', 'INCLUDE', 'LIB', 'LIBPATH', 'WindowsSdkDir', 'WindowsSDKVersion', 'WindowsSDKLibVersion',
+            'VCToolsInstallDir', 'VCToolsVersion', 'UniversalCRTSdkDir', 'UCRTVersion', 'VCINSTALLDIR', 'VSINSTALLDIR', 'VisualStudioVersion')
+          foreach ($line in $toolEnvironment) {
+            $pair = $line -split '=', 2
+            if ($pair.Count -eq 2 -and $allowed -contains $pair[0]) {
+              [Environment]::SetEnvironmentVariable($pair[0], $pair[1])
+              "$($pair[0])=$($pair[1])" >> $env:GITHUB_ENV
+            }
+          }
+          foreach ($pair in @(@('CMAKE_GENERATOR', 'Ninja'), @('CC', 'cl'), @('CXX', 'cl'))) {
+            [Environment]::SetEnvironmentVariable($pair[0], $pair[1])
+            "$($pair[0])=$($pair[1])" >> $env:GITHUB_ENV
+          }
           $vcVersion = (Get-Content (Join-Path $vs.installationPath 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt')).Trim()
           $compiler = Join-Path $vs.installationPath "VC\Tools\MSVC\$vcVersion\bin\Hostx64\x64\cl.exe"
           $sdkRoot = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots').KitsRoot10
@@ -65,12 +85,15 @@ jobs:
             visualStudioVersion = $vs.installationVersion
             vcToolsVersion = $vcVersion
             compilerVersion = (Get-Item -LiteralPath $compiler).VersionInfo.ProductVersion
+            windowsSdkVersion = $env:WindowsSDKVersion
+            generator = 'Ninja'
             manifestTool = $mt
             manifestToolVersion = (Get-Item -LiteralPath $mt).VersionInfo.ProductVersion
           }
           $technical | ConvertTo-Json -Depth 5 | Tee-Object -FilePath "$evidence/environment.json"
           "MUSE_MT=$mt" >> $env:GITHUB_ENV
           cmake --version | Tee-Object -FilePath "$evidence/cmake-version.txt"
+          ninja --version | Tee-Object -FilePath "$evidence/ninja-version.txt"
           python --version | Tee-Object -FilePath "$evidence/python-version.txt"
           python -m pip install --disable-pip-version-check numpy==1.26.4
           if ($LASTEXITCODE -ne 0) { throw 'NumPy installation failed' }
@@ -78,7 +101,7 @@ jobs:
       - name: Configure and build the CPU reference with MSVC
         run: |
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'evidence'
-          cmake -S . -B ../build -G 'Visual Studio 17 2022' -A x64 `
+          cmake -S . -B ../build -G Ninja -DCMAKE_BUILD_TYPE=Release `
             -DSTRATA_ENABLE_MUSE=ON -DSTRATA_BUILD_TESTS=ON `
             -DSTRATA_ENABLE_CUDA=OFF -DSTRATA_ENABLE_HIP=OFF -DSTRATA_ENABLE_SYCL=OFF `
             "-DSTRATA_GGML_DIR=$env:GITHUB_WORKSPACE/llama" 2>&1 | Tee-Object -FilePath "$evidence/configure.log"
@@ -97,7 +120,7 @@ jobs:
         run: |
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'evidence'
           foreach ($name in @('strata-muse', 'muse_model_test')) {
-            $exe = (Resolve-Path "../build/src/muse/Release/$name.exe").Path
+            $exe = (Resolve-Path "../build/src/muse/$name.exe").Path
             $manifest = Join-Path $evidence "$name.manifest"
             & $env:MUSE_MT "-inputresource:$exe;#1" "-out:$manifest"
             if ($LASTEXITCODE -ne 0) { throw "Manifest extraction failed: $name" }
@@ -109,17 +132,19 @@ jobs:
             "$name`: embedded activeCodePage=UTF-8" | Tee-Object -FilePath "$evidence/manifests.log" -Append
           }
 
-      - name: Run five native checks with a Unicode temporary directory
+      - name: Run five native checks and the Muse-only Unicode temporary check
         run: |
           $evidence = Join-Path $env:GITHUB_WORKSPACE 'evidence'
-          $unicodeTemp = Join-Path $env:RUNNER_TEMP 'Muse-临时-данные'
-          New-Item -ItemType Directory -Force $unicodeTemp | Out-Null
-          $env:TEMP = $unicodeTemp
-          $env:TMP = $unicodeTemp
           ctest --test-dir ../build -C Release --output-on-failure `
             -R '^(muse_model_test|gguf_reader_test|gguf_split_test|model_family_test|gguf_geometry_test)$' `
             --output-junit "$evidence/native-tests.xml" 2>&1 | Tee-Object -FilePath "$evidence/ctest.log"
           if ($LASTEXITCODE -ne 0) { throw 'MSVC native checks failed' }
+          $unicodeTemp = Join-Path $env:RUNNER_TEMP 'Muse-临时-данные'
+          New-Item -ItemType Directory -Force $unicodeTemp | Out-Null
+          $env:TEMP = $unicodeTemp
+          $env:TMP = $unicodeTemp
+          & ../build/src/muse/muse_model_test.exe 2>&1 | Tee-Object -FilePath "$evidence/unicode-native-tests.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Muse Unicode temporary-path native check failed' }
 
       - name: Compare all 448 logits using Unicode model and output paths
         env:
@@ -132,7 +157,7 @@ jobs:
           $actual = Join-Path $fixture 'логиты-输出.json'
           python -m tools.muse.fixture --output-dir "$fixture" 2>&1 | Tee-Object -FilePath "$evidence/fixture.log"
           if ($LASTEXITCODE -ne 0) { throw 'Fixture generation failed' }
-          & ../build/src/muse/Release/strata-muse.exe --model "$fixture/model.gguf" `
+          & ../build/src/muse/strata-muse.exe --model "$fixture/model.gguf" `
             --tokens 1,5,8,3,7,2,9 --ctx 32 --steps 0 --backend cpu --logits-file "$actual" 2>&1 |
             Tee-Object -FilePath "$evidence/unicode-native.log"
           if ($LASTEXITCODE -ne 0) { throw 'Unicode-path native execution failed' }
@@ -141,7 +166,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Independent full-logit comparison failed' }
           Copy-Item -LiteralPath "$fixture/reference.json" -Destination "$evidence/reference.json"
           Copy-Item -LiteralPath $actual -Destination "$evidence/native-unicode.json"
-          Get-FileHash -Algorithm SHA256 ../build/src/muse/Release/strata-muse.exe, ../build/src/muse/Release/muse_model_test.exe |
+          Get-FileHash -Algorithm SHA256 ../build/src/muse/strata-muse.exe, ../build/src/muse/muse_model_test.exe |
             Format-Table -AutoSize | Out-String | Set-Content "$evidence/executable-hashes.txt"
 
       - name: Preserve verification evidence
