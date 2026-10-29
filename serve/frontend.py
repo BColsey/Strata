@@ -40,6 +40,8 @@ class TemplateRequestError(jinja2.exceptions.TemplateError, ValueError):
 class ChatTemplate:
     """The model's chat template, rendered with the same Jinja settings as transformers' apply_chat_template."""
 
+    _extra_jinja_extensions = ()  # Subclasses may add model-owned syntax; the default environment stays unchanged.
+
     def __init__(self, path: str | Path):
         def raise_exception(message):
             raise TemplateRequestError(message)
@@ -47,7 +49,8 @@ class ChatTemplate:
         def tojson(x, ensure_ascii=False, indent=None, separators=None, sort_keys=False):
             return json.dumps(x, ensure_ascii=ensure_ascii, indent=indent, separators=separators, sort_keys=sort_keys)
 
-        env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True, extensions=["jinja2.ext.loopcontrols"])
+        env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True,
+                                            extensions=["jinja2.ext.loopcontrols", *self._extra_jinja_extensions])
         env.filters["tojson"] = tojson
         env.globals["raise_exception"] = raise_exception
         self.source = Path(path).read_text(encoding="utf-8")
@@ -140,8 +143,8 @@ EFFORT = {"none": None, "off": None, "minimal": None, "disabled": None, "false":
 EFFORT_DEEPSEEK = {"none": None, "off": None, "minimal": None, "disabled": None, "false": None,
                    "low": "low", "medium": "medium", "high": "high", "xhigh": "max", "max": "max", "maximum": "max"}
 EFFORT_MUSE = {"none": None, "off": None, "disabled": None, "false": None,
-               "minimal": "minimal", "low": "low", "medium": "medium", "high": "high",
-               "xhigh": "high", "max": "high", "maximum": "high"}
+               "low": "low", "medium": "medium", "high": "high",
+               "xhigh": "xhigh", "max": "xhigh", "maximum": "xhigh"}
 _EFFORT_QWEN = dict(EFFORT)
 _NUMERIC_EFFORT = False
 

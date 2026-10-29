@@ -150,6 +150,12 @@ instead of being passed to another engine. Scaled RoPE and custom/interleaved
 row encodings are also refused; see `strata_control/muse.py` for the launcher's
 supported row types. A recognized encoding is not full-checkpoint validation.
 
+The published Muse template supports `reasoning_effort` values `low`, `medium`,
+`high` and `xhigh`; its default is `xhigh`. `high` and `xhigh` remain distinct.
+It has no switch to disable reasoning. Requests for `minimal` or `none`, or
+`chat_template_kwargs` with `enable_thinking: false`, return an error instead of
+silently keeping reasoning enabled. Use `low` for the lowest supported effort.
+
 ### Native server protocol
 
 `strata-muse --serve --model MODEL.gguf --max-context N --backend cpu|cuda`

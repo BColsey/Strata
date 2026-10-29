@@ -6,7 +6,11 @@ No Qwen tags or tool-recovery heuristics are applied to Muse text.
 """
 from __future__ import annotations
 
+from datetime import datetime
 import re
+
+from jinja2 import nodes
+from jinja2.ext import Extension
 
 from serve.frontend import ChatTemplate, Event, OutputParser
 
@@ -15,7 +19,23 @@ MESSAGE = "<|message|>"
 ENDS = ("<|eom|>", "<|eot|>", "<|start|>")
 
 
+class _GenerationExtension(Extension):
+    """Keep Hugging Face's generation-block scope, without its training-mask tracking."""
+
+    tags = {"generation"}
+
+    def parse(self, parser):
+        lineno = next(parser.stream).lineno
+        body = parser.parse_statements(("name:endgeneration",), drop_needle=True)
+        return nodes.CallBlock(self.call_method("_render"), [], [], body).set_lineno(lineno)
+
+    def _render(self, caller):
+        return caller()
+
+
 class MuseTemplate(ChatTemplate):
+    _extra_jinja_extensions = (_GenerationExtension,)
+
     def __init__(self, path, tokenizer):
         special = tokenizer.special_ids
         bos = special.get("bos")
@@ -23,6 +43,8 @@ class MuseTemplate(ChatTemplate):
             raise ValueError("Muse tokenizer needs its model's BOS token ID")
         self.bos = tokenizer.tokens[bos]
         super().__init__(path)
+        # The model-owned template uses the same optional date helper as Hugging Face.
+        self.template.environment.globals["strftime_now"] = lambda format: datetime.now().strftime(format)
         # ATEM tool calls require their own adapter; never advertise Qwen XML.
         self.caps.update(supports_tools=False, supports_tool_calls=False,
                          supports_parallel_tool_calls=False)
@@ -30,11 +52,11 @@ class MuseTemplate(ChatTemplate):
     def render(self, messages, tools=None, add_generation_prompt=True, **kwargs):
         validate_request(messages, tools)
         kwargs["bos_token"] = self.bos
-        if "enable_thinking" in kwargs:
-            kwargs["disable_reasoning"] = kwargs.pop("enable_thinking") is False
+        if kwargs.pop("enable_thinking", True) is False or kwargs.pop("disable_reasoning", False):
+            raise ValueError("Muse's template does not support disabling reasoning; use reasoning_effort=low instead")
         effort = kwargs.get("reasoning_effort")
-        if effort not in (None, "", "minimal", "low", "medium", "high"):
-            raise ValueError("Muse reasoning effort must be minimal, low, medium or high")
+        if effort not in (None, "", "low", "medium", "high", "xhigh"):
+            raise ValueError("Muse reasoning effort must be low, medium, high or xhigh")
         return super().render(messages, tools=None, add_generation_prompt=add_generation_prompt, **kwargs)
 
 
