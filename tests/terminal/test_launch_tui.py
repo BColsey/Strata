@@ -335,12 +335,14 @@ class FolderStep(Base):
             self.assertIn("Where should the model files be stored?", t)
             self.assertIn("Not downloaded yet: about 90 GB", t)
             self.assertIn("Free space in that folder's drive", t)
+            chosen = str(self.home.base / "chosen-model-data")
+            self.assertNotEqual(chosen, str(ctx.default_folder()))
             f = app.screen.query_one("#folderpath")
             f.value = ""
-            await typed(pilot, str(self.home.base / "Strata-data"))
-            self.assertEqual(f.value, str(self.home.base / "Strata-data"))
+            await typed(pilot, chosen)
+            self.assertEqual(f.value, chosen)
             await press(pilot, "enter")
-            self.assertEqual(ctx.settings.data_dir, str(self.home.base / "Strata-data"))
+            self.assertEqual(ctx.settings.data_dir, chosen)
             self.assertIn("How much text should it remember at once?", text_of(app))
         self.run_app(case)
 
