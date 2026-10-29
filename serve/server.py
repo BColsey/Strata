@@ -992,8 +992,8 @@ class StrataEngine:
                  env: dict | None = None, lazy: bool = False, cpus: list[int] | None = None, _attempt: int = 0):
         self.spawn = (exe, list(args), cwd, log, env, False, cpus)   # to start it again after it died (issue #27)
         self.session_save_reclaim = '--session-save-reclaim' in args
-        paths = {k: v for k, v in zip(args, args[1:]) if k in ("--native", "--pack")}
-        self.model_path = paths.get("--native") or paths.get("--pack", "pack/full")
+        paths = {k: v for k, v in zip(args, args[1:]) if k in ("--native", "--pack", "--model")}
+        self.model_path = paths.get("--native") or paths.get("--model") or paths.get("--pack", "pack/full")
         self.log_path = log
         self.proc, self.pump, self.log = None, None, None
         self.ended, self.unloaded = True, True
@@ -3151,6 +3151,10 @@ def engine_args(cfg: dict) -> list[str]:
     config: "auto" by default, or the first layer of each later GPU's share, e.g. "18" or "16,32"; see
     layer_split_value)."""
     args = list(cfg["args"])
+    if cfg.get("arch") == "muse":
+        from strata_control.muse import validate_config
+        validate_config(cfg)
+        return args
     # "user_args" (strata_control/user_args.py): the options the person set by hand, over the generated ones at every start,
     # so a setup run or the app rewriting "args" cannot undo them (#3216 #3215 #3270)
     if cfg.get("user_args"):
@@ -4070,6 +4074,14 @@ class Service:
             self.stop_ids = {int(eos)}
             self.parser_cls = dsml.DsmlOutputParser
             self._force_text = dsml.to_dsml_force
+        elif family == "muse":
+            from serve.muse import MuseOutputParser
+            special = getattr(self.tok, "special_ids", {})
+            self.stop_ids = {int(special[k]) for k in ("eos", "eot") if k in special}
+            if not self.stop_ids:
+                raise ValueError("Muse tokenizer needs EOS/EOT token IDs")
+            self.parser_cls = MuseOutputParser
+            self.answer_room = False
         import serve.frontend as _frontend
         _frontend.use_family(family)
 
@@ -4955,6 +4967,11 @@ class Service:
         """-> (ids, thinking, max_new). An unset or non-positive max_new (some clients send -1) means "unlimited":
         the rest of the context.  `force` (forced_call): without thinking the reply starts with it, so it ends the
         prompt; with thinking, Service.run writes it once the thinking is over."""
+        if self.family == "muse":
+            from serve.muse import validate_request
+            validate_request(messages, tools, req)
+            if force:
+                raise ValueError("Muse reference chat does not yet support forced tool calls")
         # `cancel` (#1999): set when the client hangs up; the downloads, the wait for the turn and the encodes stop
         # between pictures and raise ClientGone
         # Cached tool images are references in browser history, never arbitrary file paths or huge base64 strings.
@@ -5248,9 +5265,12 @@ class Service:
         if defaults:                   # the request's own fields win (explicit 0 stays greedy)
             req_values = {k: v for k, v in (sampling or {}).items() if v is not None}
             sampling = {**defaults, **req_values}
+        if self.family == "muse":
+            from serve.muse import validate_request
+            validate_request([], tools, sampling)
         # #123: read after the merge, so a budget shared through POST /settings is seen like the other keys
-        budget = self.reasoning_budget(sampling) if thinking else None
-        if thinking and not budget and self.answer_room and max_new and max_new >= ANSWER_ROOM_MIN_CAP:
+        budget = self.reasoning_budget(sampling) if thinking and self.family != "muse" else None
+        if thinking and self.family != "muse" and not budget and self.answer_room and max_new and max_new >= ANSWER_ROOM_MIN_CAP:
             # 0.1.45: max_tokens counts the thinking too.  A client that caps the reply at 8192 (the desktop agent's
             # harness sends max_completion_tokens: 8192 on every request) and a task the model thinks long about got
             # the cut-off in the middle of the thinking and NO answer.  So thinking is closed early enough to leave
@@ -8560,7 +8580,7 @@ def check_request_sampling(req) -> None:
 
 # the API's model name per model family (the GGUF architecture, "arch" in the config) when the config names none
 FAMILY_MODEL_NAMES = {"qwen4exp": "qwen3.8-flash-next", "qwen35moe": "qwen3.6-35b-a3b",
-                      "deepseek41": "deepseek-v4.1-flash"}
+                      "deepseek41": "deepseek-v4.1-flash", "muse": "muse-spark-reference"}
 
 
 # The sampling each model card recommends ("Best Practices"), used when neither the request, the Chat settings nor the
@@ -8833,6 +8853,12 @@ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> in
         ap.error(listen_problem(a.host, a.port, e))
     if cfg.get("tokenizer"):
         a.tokenizer = cfg["tokenizer"]
+    if a.engine == "strata" and cfg.get("arch") == "muse":
+        from strata_control.muse import validate_config
+        try:
+            validate_config(cfg)
+        except (OSError, ValueError) as exc:
+            ap.error(str(exc))
     tok = ByteTokenizer()
     tpath = Path(a.tokenizer)
     if a.engine == "strata" and not (tpath / "vocab.json").exists():
@@ -8844,6 +8870,8 @@ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> in
         for t, i in vocab.items():
             tokens[i] = t
         merges = (tpath / "merges.txt").read_text(encoding="utf-8").split("\n")
+        if cfg.get("arch") == "muse":
+            merges = (tpath / "merges.txt").read_text(encoding="utf-8").splitlines()
         types = json.loads((tpath / "token_type.json").read_text())
         tcfg = {}
         try:                                            # the pack's pre-tokenizer name and special ids (DeepSeek's differ)
@@ -8976,7 +9004,12 @@ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> in
         if swapped:
             print("[strata] this pack's chat template spells the tool-call block differently from the V4.1 model's; "
                   "using the V4.1 template so tool calls come back as real calls", flush=True)
-    svc = Service(engine, tok, ChatTemplate(tpl if tpl.exists() else ROOT / "serve/chat_template.jinja"),
+    if cfg.get("arch") == "muse":
+        from serve.muse import MuseTemplate
+        template = MuseTemplate(tpl, tok)
+    else:
+        template = ChatTemplate(tpl if tpl.exists() else ROOT / "serve/chat_template.jinja")
+    svc = Service(engine, tok, template,
                   model_name=default_model_name(cfg), vision=vision,
                   sampling_defaults=sampling_defaults,
                   fit_max_tokens=a.fit_max_tokens or (not a.no_fit_max_tokens and cfg.get("fit_max_tokens") is not False))
@@ -8993,7 +9026,7 @@ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> in
     svc.queue_timeout_s = float(queue_timeout) if queue_timeout is not None else None
     if a.engine == "strata":                            # the model card's sampling when nothing else is said (see MODEL_CARD_SAMPLING)
         svc.model_arch = cfg.get("arch") or "qwen4exp"
-        svc.set_family(svc.model_arch if svc.model_arch == "deepseek41" else None)
+        svc.set_family(svc.model_arch if svc.model_arch in ("deepseek41", "muse") else None)
         requested = cfg.get("parallel")
         if requested is None:
             args = cfg.get("args", [])
@@ -9005,7 +9038,7 @@ def main(argv=None, *, lifecycle_event=None, interrupt_exit_code: int = 0) -> in
                         pass
         per_replica = requested if isinstance(requested, int) and not isinstance(requested, bool) and requested > 0 else 1
         svc.requested_slots = per_replica * len(groups) if groups else per_replica
-    svc.answer_room = cfg.get("answer_room") is not False
+    svc.answer_room = cfg.get("arch") != "muse" and cfg.get("answer_room") is not False
     svc.reasoning_close_retry = cfg.get("reasoning_close_retry") is True    # #1053: opt-in, off by default
     if cfg.get("images"):                               # image generation (serve/images.py), set up by setup --images
         icfg = {k: (os.path.abspath(os.path.join(cfg.get("cwd") or ".", v))

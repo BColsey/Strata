@@ -139,6 +139,9 @@ EFFORT = {"none": None, "off": None, "minimal": None, "disabled": None, "false":
 # Effort: N" line of its prompt).  use_family("deepseek41") switches the table; the other families keep the one above.
 EFFORT_DEEPSEEK = {"none": None, "off": None, "minimal": None, "disabled": None, "false": None,
                    "low": "low", "medium": "medium", "high": "high", "xhigh": "max", "max": "max", "maximum": "max"}
+EFFORT_MUSE = {"none": None, "off": None, "disabled": None, "false": None,
+               "minimal": "minimal", "low": "low", "medium": "medium", "high": "high",
+               "xhigh": "high", "max": "high", "maximum": "high"}
 _EFFORT_QWEN = dict(EFFORT)
 _NUMERIC_EFFORT = False
 
@@ -147,7 +150,7 @@ def use_family(family: str | None) -> None:
     """The reasoning-effort words of the model family this server runs (module state, like ENV_TO_USER)."""
     global _NUMERIC_EFFORT
     EFFORT.clear()
-    EFFORT.update(EFFORT_DEEPSEEK if family == "deepseek41" else _EFFORT_QWEN)
+    EFFORT.update(EFFORT_DEEPSEEK if family == "deepseek41" else EFFORT_MUSE if family == "muse" else _EFFORT_QWEN)
     _NUMERIC_EFFORT = family == "deepseek41"
 
 
