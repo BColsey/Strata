@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,6 +22,7 @@ struct Options {
     std::string model, logits_file, backend = "cpu";
     std::vector<uint32_t> tokens;
     uint32_t context = 128, steps = 0, gpu = 0;
+    bool serve = false;
 };
 Options parse_options(int argc, const char* const* argv);
 
@@ -44,6 +46,10 @@ public:
     const Geometry& geometry() const;
     // A sequential, causal token input. Returns full next-token logits.
     std::vector<float> forward(uint32_t token);
+    // The callback may throw to interrupt a resident request between weight
+    // tiles. Reset before the next request, including after an interruption.
+    std::vector<float> forward(uint32_t token, const std::function<void()>& checkpoint);
+    void reset();
     bool is_end(uint32_t token) const;
 private:
     struct Impl;
@@ -52,4 +58,6 @@ private:
 
 // Logits contain forced inputs only. Generation uses later logits internally.
 void run(const Options& options);
+// Resident, token-ID stdin/stdout protocol used by the Python server.
+void serve(const Options& options);
 } // namespace strata::muse

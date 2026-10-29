@@ -255,8 +255,10 @@ std::vector<uint32_t> parse_tokens(const std::string& s) {
 Options parse_options(int argc, const char* const* argv) {
     Options o; std::set<std::string> seen;
     for (int i = 1; i < argc; ++i) {
-        const std::string key(argv[i]);
+        std::string key(argv[i]);
+        if (key == "--max-context") key = "--ctx";
         if (!seen.insert(key).second) fail("duplicate argument " + key);
+        if (key == "--serve") { o.serve = true; continue; }
         if (key != "--model" && key != "--tokens" && key != "--ctx" && key != "--steps" &&
             key != "--backend" && key != "--gpu" && key != "--logits-file") fail("unknown argument " + key);
         if (++i == argc) fail("missing value for " + key);
@@ -269,7 +271,12 @@ Options parse_options(int argc, const char* const* argv) {
         else if (key == "--backend") o.backend = v;
         else o.logits_file = v;
     }
-    if (o.model.empty() || o.logits_file.empty() || o.tokens.empty()) fail("--model, --tokens and --logits-file are required");
+    if (o.serve) {
+        if (o.model.empty()) fail("--model is required");
+        if (seen.count("--tokens") || seen.count("--steps") || seen.count("--logits-file"))
+            fail("--serve cannot be combined with --tokens, --steps or --logits-file");
+    } else if (o.model.empty() || o.logits_file.empty() || o.tokens.empty())
+        fail("--model, --tokens and --logits-file are required");
     if (!o.context || o.tokens.size() > o.context || o.steps > o.context - o.tokens.size())
         fail("prompt plus generation exceeds context");
     if (o.backend != "cpu" && o.backend != "cuda") fail("backend must be cpu or cuda");
@@ -304,6 +311,8 @@ struct Model::Impl {
     struct KV { Vec key, value; size_t slots; };
     std::vector<KV> cache;
     std::set<uint32_t> end_tokens;
+    const std::function<void()>* checkpoint = nullptr;
+    void poll() const { if (checkpoint) (*checkpoint)(); }
 #ifdef STRATA_MUSE_CUDA
     std::unique_ptr<CudaMatvec> cuda;
 #endif
@@ -407,6 +416,7 @@ struct Model::Impl {
         const size_t batch = std::min(size_t(64), tile.size() / cols);
         Vec y(rows);
         for (size_t start = 0; start < rows; start += batch) {
+            poll();
             const size_t n = std::min(batch, rows - start);
             for (size_t r = 0; r < n; ++r) row(t, expert * rows + start + r, tile.data() + r * cols);
 #ifdef STRATA_MUSE_CUDA
@@ -454,8 +464,10 @@ struct Model::Impl {
         Vec out(q.size(), 0), scores(position + 1 - first);
         const float scale = 1.0f / std::sqrt(float(g.head_dim));
         for (size_t h = 0; h < g.heads; ++h) {
+            poll();
             const size_t kh = h / (g.heads / g.kv_heads);
             for (size_t t = first; t <= position; ++t) {
+                if ((t - first) % 64 == 0) poll();
                 const size_t offset = (t % kv.slots) * width + kh * g.head_dim;
                 float dot = 0;
                 for (size_t d = 0; d < g.head_dim; ++d) dot += q[h * g.head_dim + d] * kv.key[offset + d];
@@ -465,6 +477,7 @@ struct Model::Impl {
             float sum = 0;
             for (auto& s : scores) { s = std::exp(s - max); sum += s; }
             for (size_t t = first; t <= position; ++t) {
+                if ((t - first) % 64 == 0) poll();
                 const size_t offset = (t % kv.slots) * width + kh * g.head_dim;
                 const float p = scores[t - first] / sum;
                 for (size_t d = 0; d < g.head_dim; ++d) out[h * g.head_dim + d] += p * kv.value[offset + d];
@@ -478,6 +491,7 @@ struct Model::Impl {
         for (size_t i = 0; i < stream.size(); ++i) stream[i] = stream[i] * alpha[i] + branch[i] * beta[i];
     }
     Vec forward(uint32_t token) {
+        poll();
         if (token >= g.vocab) fail("token outside vocabulary");
         if (position >= context) fail("context exhausted");
         Vec x(g.hidden); row(tensor("token_embd.weight"), token, x.data());
@@ -531,6 +545,21 @@ Model::Model(const std::string& path, size_t context, const std::string& backend
 Model::~Model() = default;
 const Geometry& Model::geometry() const { return impl_->g; }
 std::vector<float> Model::forward(uint32_t token) { return impl_->forward(token); }
+std::vector<float> Model::forward(uint32_t token, const std::function<void()>& checkpoint) {
+    struct Clear {
+        const std::function<void()>*& slot;
+        ~Clear() { slot = nullptr; }
+    } clear{impl_->checkpoint};
+    impl_->checkpoint = &checkpoint;
+    return impl_->forward(token);
+}
+void Model::reset() {
+    impl_->position = 0;
+    for (auto& kv : impl_->cache) {
+        std::fill(kv.key.begin(), kv.key.end(), 0.0f);
+        std::fill(kv.value.begin(), kv.value.end(), 0.0f);
+    }
+}
 bool Model::is_end(uint32_t token) const { return impl_->end_tokens.count(token) != 0; }
 
 void run(const Options& o) {
