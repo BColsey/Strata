@@ -169,7 +169,7 @@ def inspect_model(path, context=None):
         raise MuseError("Muse GQA/head/expert geometry is incompatible")
     rotary = _integer(md.get(PREFIX + "rope.dimension_count", g["head_dim"]), "rope.dimension_count")
     if rotary > g["head_dim"] or rotary % 2:
-        raise MuseError("Muse needs even NeoX rotary dimensions within the attention head")
+        raise MuseError("Muse needs even rotary dimensions within the attention head")
     if md.get(PREFIX + "rope.scaling.type", "none") != "none" or md.get(PREFIX + "rope.scaling.factor", 1.0) != 1.0:
         raise MuseError("Scaled RoPE is not supported by the Muse reference")
     if n("expert_gating_func") != 2 or md.get(PREFIX + "expert_weights_norm") is not True:

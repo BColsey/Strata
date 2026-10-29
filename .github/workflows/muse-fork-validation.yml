@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - name: foundation
-            revision: 7750b999ac0a88ea8b3596b34847e60851d55cf7
+            revision: 799663141d7256cfd068143c89c7fdedb57413cb
           - name: integration
             revision: ${{ github.sha }}
     runs-on: windows-2025
