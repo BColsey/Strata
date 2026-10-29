@@ -146,6 +146,8 @@ Follow the prompts to download and start a model. [Terminal guide](docs/TERMINAL
 
 [Build from source](docs/SOURCE_INSTALL.md) · [Docker](docs/DOCKER.md) · [Full install guide](docs/INSTALL.md)
 
+Personal fork development: [experimental Muse reference and validation tools](docs/MUSE_SPARK.md).
+
 <a id="what-you-need"></a>
 
 ## Hardware
