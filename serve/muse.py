@@ -47,8 +47,26 @@ def validate_request(messages, tools=None, request=None):
                                              for p in content if isinstance(p, dict)):
             raise ValueError("Muse reference chat supports text inputs only")
     req = request or {}
-    unsupported = ("logprobs", "top_logprobs", "logit_bias", "strata_tune", "strata_prefix",
-                   "reasoning_budget_tokens", "experimental_speed_projection")
+    # Shared API normalization drops unknown media parts. Inspect the original
+    # message/input tree as well, before that can turn audio/video/files into an
+    # apparently valid text-only prompt.
+    def check_parts(value):
+        if isinstance(value, list):
+            for item in value:
+                check_parts(item)
+        elif isinstance(value, dict):
+            if value.get("type") not in (None, "message", "text", "input_text", "output_text"):
+                raise ValueError("Muse reference chat supports text inputs only")
+            for key in ("content", "messages", "input"):
+                check_parts(value.get(key))
+    for key in ("messages", "input", "content"):
+        check_parts(req.get(key))
+    if ((req.get("logprobs") is not None and req.get("logprobs") is not False)
+            or req.get("top_logprobs") is not None or req.get("strata_checkpoint") is False
+            or req.get("experimental_speed_projection") is not None):
+        raise ValueError("Muse reference chat does not support logprobs or checkpoint controls")
+    unsupported = ("logit_bias", "strata_tune", "strata_prefix",
+                   "reasoning_budget_tokens")
     if any(req.get(k) not in (None, False, {}, []) for k in unsupported):
         raise ValueError("Muse reference chat does not support logprobs, logit bias, cache tuning or reasoning budgets")
 
@@ -62,6 +80,7 @@ class MuseOutputParser(OutputParser):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._header = True
+        self._initial_header = True
         self._ended = False
         self.state = "content"
 
@@ -86,16 +105,21 @@ class MuseOutputParser(OutputParser):
                 header = self.buf[:at]
                 if header.startswith(START):
                     header = header[len(START):]
+                elif not self._initial_header:
+                    raise ValueError("Muse output message needs a start marker and assistant role")
                 match = re.fullmatch(r"\s*(?:to=(self|user|commentary))?\s*", header)
                 if match is None:
                     raise ValueError("Muse output has an unsupported recipient or malformed header")
                 self.state = "reasoning" if match[1] == "self" else "content"
                 self.buf = self.buf[at + len(MESSAGE):]
                 self._header = False
+                self._initial_header = False
                 continue
             found = [(self.buf.find(end), end) for end in ENDS if end in self.buf]
             if found:
                 at, end = min(found)
+                if end == "<|start|>":
+                    raise ValueError("Muse output started a message before ending the previous one")
                 if at:
                     out.append(Event(self.state, self.buf[:at]))
                 self.buf = self.buf[at + len(end):]
@@ -104,8 +128,6 @@ class MuseOutputParser(OutputParser):
                     break
                 # A new message must include the assistant role before its
                 # recipient, whether preceded by EOM or directly by START.
-                if end == "<|start|>":
-                    self.buf = "<|start|>" + self.buf
                 self._header = True
                 continue
             hold = max((n for end in ENDS for n in range(1, len(end)) if self.buf.endswith(end[:n])), default=0)

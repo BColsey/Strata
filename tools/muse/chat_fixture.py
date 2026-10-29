@@ -42,7 +42,12 @@ def generate(output_dir: Path):
     tensors["output.weight"][256, 0] = 1
     writer = GGUFWriter()
     for key, value in md.items():
-        writer.add(key, value, "array:string" if key == "tokenizer.ggml.merges" else None)
+        if isinstance(value, list):
+            kind = "array:string" if key in ("tokenizer.ggml.tokens", "tokenizer.ggml.merges") else \
+                "array:bool" if key.endswith("sliding_window_pattern") else "array:i32"
+        else:
+            kind = {str: "string", bool: "bool", int: "u32", float: "f32"}[type(value)]
+        writer.add(key, value, kind)
     for name, value in tensors.items():
         writer.add_f32(name, value)
         writer.tensors[-1].shape = list(reversed(value.shape))

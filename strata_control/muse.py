@@ -14,6 +14,7 @@ ARCH = "muse-spark"
 PREFIX = ARCH + "."
 HOST_BUDGET = 1024 ** 3
 TILE_BYTES = 4 * 1024 ** 2
+COMMAND_BYTES = 16 * 1024 ** 2
 SHARD = re.compile(r"(.+)-(\d{5})-of-(\d{5})\.gguf$")
 # Conservative subset of the pinned GGML row converters. Interleaved, integer,
 # trellis and custom Q2_0 rows are deliberately not advertised by the launcher.
@@ -94,13 +95,18 @@ class Bundle:
     scratch_bytes: int
     mapped_bytes: int
 
+    @property
+    def protocol_bytes(self):
+        return COMMAND_BYTES + self.context * 16
+
     def plan(self):
         return {"context": self.context, "trained_context": self.geometry["train_context"],
                 "kv_bytes": self.kv_bytes, "scratch_bytes": self.scratch_bytes,
-                "host_live_bytes": self.kv_bytes + self.scratch_bytes, "host_budget_bytes": HOST_BUDGET,
+                "protocol_bytes": self.protocol_bytes,
+                "host_live_bytes": self.kv_bytes + self.scratch_bytes + self.protocol_bytes, "host_budget_bytes": HOST_BUDGET,
                 "mapped_bytes": self.mapped_bytes, "shards": len(self.paths),
                 "lines": [f"Muse reference: {len(self.paths)} file(s), {self.mapped_bytes / 1e9:.3f} GB mapped weights; no resident expert cache.",
-                          f"Context {self.context}: {(self.kv_bytes + self.scratch_bytes) / 2**20:.2f} MiB bounded host KV and scratch (1 GiB limit).",
+                          f"Context {self.context}: {(self.kv_bytes + self.scratch_bytes + self.protocol_bytes) / 2**20:.2f} MiB bounded host KV, scratch and protocol buffers (1 GiB limit).",
                           "Mapped weights, the OS page cache and runtime libraries are additional memory; full-checkpoint speed and memory use are unmeasured."],
                 "warnings": []}
 
@@ -219,8 +225,8 @@ def inspect_model(path, context=None):
         raise MuseError(f"Muse context {ctx} exceeds the GGUF trained context {g['train_context']}; RoPE scaling is unsupported")
     kv_bytes = sum(min(ctx, g["window"]) if local else ctx for local in pattern) * kv * 2 * 4
     scratch = TILE_BYTES + (width * 64 + ctx) * 4
-    if kv_bytes + scratch > HOST_BUDGET:
-        raise MuseError("Muse KV plus scratch exceeds the 1 GiB reference budget; choose a smaller --context")
+    if kv_bytes + scratch + COMMAND_BYTES + ctx * 16 > HOST_BUDGET:
+        raise MuseError("Muse KV, scratch and protocol buffers exceed the 1 GiB resident budget; choose a smaller --context")
     bundle = Bundle(paths, md, g, ctx, kv_bytes, scratch, sum(p.stat().st_size for p in paths))
     _tokenizer(bundle)
     return bundle
@@ -301,9 +307,11 @@ def validate_config(cfg):
     allowed = {"--model", "--max-context", "--backend", "--gpu"}
     if not isinstance(args, list) or any(not isinstance(a, str) for a in args) or len(args) % 2 or any(flag not in allowed for flag in args[::2]) or len(set(args[::2])) != len(args[::2]):
         raise MuseError("Muse config supports only --model, --max-context, --backend and --gpu, each once")
-    if cfg.get("parallel", 1) not in (None, 1) or cfg.get("drafting") not in (None, "off") or any(cfg.get(k) for k in
+    if cfg.get("gpu") is not None or cfg.get("parallel", 1) not in (None, 1) or cfg.get("drafting") not in (None, "off") or any(cfg.get(k) for k in
             ("vision", "replicas", "layer_split", "gpu_roles", "gpu_order", "gpu", "gpu_none",
-             "thinking_budget_tokens", "reasoning_budget_tokens", "reasoning_effort_at_end")):
+             "thinking_budget_tokens", "reasoning_budget_tokens", "reasoning_effort_at_end", "effort_position",
+             "reasoning_close_retry", "reasoning_loop_recovery", "tool_call_recovery", "user_args", "split_serve",
+             "slot_save_path", "images", "codex_compaction_cache", "codex_thread_titles")):
         raise MuseError("Muse reference does not support pictures, parallel/replica slots, GPU splitting, drafting or reasoning-budget recovery")
     def arg(flag, default=None):
         if flag not in args:

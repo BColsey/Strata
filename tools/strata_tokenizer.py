@@ -190,6 +190,10 @@ class Tokenizer:
             raise ValueError("expected a byte-level BPE tokenizer (model 'gpt2'), got %r" % model)
         special = {k: int(md[k]) for k in md
                    if k.startswith("tokenizer.ggml.") and k.endswith("_token_id")}
+        if md.get("general.architecture") == "muse-spark":
+            if md.get("tokenizer.ggml.pre") not in ("gpt-4o", "llama4"):
+                raise ValueError("Muse requires its GPT-4o/llama4 pre-tokenizer")
+            special = {k.removeprefix("tokenizer.ggml.").removesuffix("_token_id"): v for k, v in special.items()}
         return cls(list(md["tokenizer.ggml.tokens"]), list(md["tokenizer.ggml.merges"]),
                    list(md.get("tokenizer.ggml.token_type") or []) or None,
                    md.get("tokenizer.ggml.pre", "qwen35"), special)

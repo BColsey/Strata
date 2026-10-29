@@ -56,7 +56,7 @@ def _launch_context(value: str) -> int:
     # Muse's bounded reference can use a context smaller than the production
     # families. Enforce those families' existing minimum after resolving family.
     try:
-        return S.parse_context(value, minimum=1)
+        return S._parse_context(value, minimum=1)
     except ValueError as e:
         raise argparse.ArgumentTypeError(str(e)) from None
 

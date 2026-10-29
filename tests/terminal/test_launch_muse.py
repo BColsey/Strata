@@ -141,6 +141,10 @@ class MuseLaunch(unittest.TestCase):
         write_model(self.model, {muse.PREFIX + "context_length": 20000000})
         with self.assertRaisesRegex(muse.MuseError, "1 GiB"):
             muse.inspect_model(self.model, 20000000)
+        write_model(self.model, {muse.PREFIX + "context_length": 60000000,
+                                 muse.PREFIX + "attention.sliding_window_pattern": [True, True]})
+        with self.assertRaisesRegex(muse.MuseError, "resident budget"):
+            muse.inspect_model(self.model, 60000000)
 
     def test_custom_quant_encoding_is_refused_by_its_actual_tensor_directory(self):
         data = bytearray(self.model.read_bytes())
@@ -186,6 +190,10 @@ class MuseLaunch(unittest.TestCase):
     def test_stale_sidecars_and_injected_unsupported_config_flags_are_refused(self):
         runner = self.runner(context=16)
         cfg = json.loads(runner.ensure_model().read_text())
+        for change in ({"gpu": 0}, {"effort_position": "end"}, {"reasoning_close_retry": True},
+                       {"user_args": ["--mtp"]}, {"split_serve": {"prefill_gpu": 0, "decode_gpu": 1}}):
+            with self.subTest(change=change), self.assertRaises(muse.MuseError):
+                muse.validate_config({**cfg, **change})
         (Path(cfg["tokenizer"]) / "chat_template.jinja").write_text("wrong template")
         with self.assertRaisesRegex(muse.MuseError, "do not match"):
             muse.validate_config(cfg)

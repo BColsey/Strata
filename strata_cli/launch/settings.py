@@ -62,7 +62,11 @@ def fit_parallel(vram_gb: float | None) -> int:
     return 1
 
 
-def parse_context(text: Any, *, minimum: int = 1024) -> int:
+def parse_context(text: Any) -> int:
+    return _parse_context(text, minimum=1024)
+
+
+def _parse_context(text: Any, *, minimum: int) -> int:
     """`128k`, `128K`, `131072` or `64 K` -> tokens. 1K is 1024 tokens (the engine's and setup's unit)."""
     raw = str(text).strip().lower().replace(" ", "").replace("_", "").replace(",", "")
     m = re.fullmatch(r"(\d+(?:\.\d+)?)(k|m)?", raw)

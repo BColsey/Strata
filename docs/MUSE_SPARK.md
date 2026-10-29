@@ -99,7 +99,7 @@ export STRATA_MUSE_BACKEND=cpu
 python strata.py launch --family muse \
   --model-path ./muse-chat-fixture/model.gguf --context 1024 --plan
 python strata.py launch --family muse \
-  --model-path ./muse-chat-fixture/model.gguf --context 1024 --no-tui
+  --model-path ./muse-chat-fixture/model.gguf --context 1024 --yes --no-tui
 ```
 
 The second launch starts the normal local server and prints its address. Use
@@ -214,7 +214,7 @@ promised by this local integration.
 
 The serialized architecture must be `muse-spark`, with the tensor names and
 converter-folded scales used by
-[llama.cpp's pinned Muse Spark graph](https://github.com/ggml-org/llama.cpp/blob/3cf03257f219afbe7334045ff7c6a06ac68c627d/src/models/muse-spark.cpp).
+[llama.cpp's Muse Spark graph](https://github.com/ggml-org/llama.cpp/blob/e09a78a25dec3f42175ad59ecc540a54bed0b9b2/src/models/muse-spark.cpp).
 [Meta's model](https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B)
 and its conversions have their own license and access requirements.
 
@@ -245,6 +245,9 @@ before using it.
 Weights stay file-backed; no full model or expert layer is copied into a GPU
 cache. KV buffers use a local-layer ring and bounded global-layer history. The
 reference rejects calculated KV plus activation/tile scratch above 1 GiB.
+Resident mode includes an additional 16 MiB command buffer and 16 bytes per
+context token for protocol/history storage in that same 1 GiB budget. The launch
+plan reports that allowance separately. The numerical CLI's budget is unchanged.
 Headers, mapped-file/page-cache residency, allocator and library overhead are
 **not** a total-process memory guarantee.
 

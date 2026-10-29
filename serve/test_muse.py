@@ -35,6 +35,15 @@ class MuseChat(unittest.TestCase):
             with self.assertRaises(ValueError):
                 MuseOutputParser().feed(text)
 
+    def test_private_followups_need_complete_message_framing(self):
+        for suffix in ("<|message|>private followup", " to=user<|message|>private followup"):
+            text = " to=self<|message|>private<|eom|>" + suffix
+            for width in range(1, len(text) + 1):
+                with self.subTest(width=width, suffix=suffix), self.assertRaises(ValueError):
+                    self.events(text, width)
+        with self.assertRaises(ValueError):
+            self.events(" to=self<|message|>private<|start|>assistant to=user<|message|>x", 1)
+
     def test_template_uses_bos_and_native_reasoning_switch(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "chat_template.jinja"
@@ -50,6 +59,11 @@ class MuseChat(unittest.TestCase):
                                           ([{"role": "tool", "content": "x"}], None, {}),
                                           ([{"content": [{"type": "image_url"}]}], None, {}),
                                           ([], None, {"logprobs": True}),
+                                          ([], None, {"logprobs": 0}),
+                                          ([], None, {"strata_checkpoint": False}),
+                                          ([], None, {"experimental_speed_projection": False}),
+                                          ([], None, {"messages": [{"role": "user", "content": [{"type": "input_audio"}]}]}),
+                                          ([], None, {"input": [{"type": "input_file"}]}),
                                           ([], None, {"reasoning_budget_tokens": 100})):
             with self.assertRaises(ValueError):
                 validate_request(messages, tools, request)
