@@ -52,6 +52,15 @@ def _context(value: str) -> int:
         raise argparse.ArgumentTypeError(str(e)) from None
 
 
+def _launch_context(value: str) -> int:
+    # Muse's bounded reference can use a context smaller than the production
+    # families. Enforce those families' existing minimum after resolving family.
+    try:
+        return S.parse_context(value, minimum=1)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
 def _port(value: str) -> int:
     try:
         p = int(value)
@@ -91,7 +100,7 @@ def add_parsers(sp: argparse._SubParsersAction) -> list[argparse.ArgumentParser]
     g.add_argument("--move-data", action="store_true",
                    help="with --data-dir: move the models you already have into the new folder. Without it nothing is moved: your models stay "
                         "where they are and stay usable, and the new folder gets the new downloads")
-    g.add_argument("--context", type=_context, metavar="SIZE", help="how much text it remembers at once: 32k, 64k, 128k, 256k or a number of tokens (DeepSeek-V4.1-Flash: up to 512k and 1m)")
+    g.add_argument("--context", type=_launch_context, metavar="SIZE", help="how much text it remembers at once: 32k, 64k, 128k, 256k or a number of tokens (DeepSeek-V4.1-Flash: up to 512k and 1m)")
     g.add_argument("--kv", type=_choice("a memory format", S.KV_MODES), metavar="FORMAT", help="conversation memory format: int8 (default), q4_0 (half the memory), k8v4, fp16")
     g.add_argument("--vision", type=_choice("a picture setting", S.VISION_MODES), metavar="off|on|gpu|cpu",
                    help="let the model read pictures. Default: on when the model can read pictures and the engine has the picture reader. "
@@ -213,9 +222,9 @@ def settings_from_args(a: argparse.Namespace, catalog=None) -> tuple[S.LaunchSet
         s.dsv41_package = str(Path(a.dsv41_package).expanduser())
     if a.model_path:
         s.model_path = str(Path(a.model_path).expanduser())
-        if not a.model:
+        if not a.model and s.family != "muse":
             s.family = s.model = None
-    if a.model:
+    if a.model and a.family != "muse":
         if catalog is None:
             raise ValueError("The model list is not available in this Terminal; run it from the full Terminal install.")
         s.family, s.model = catalog.resolve(a.model, a.family)
@@ -223,6 +232,11 @@ def settings_from_args(a: argparse.Namespace, catalog=None) -> tuple[S.LaunchSet
             s.model_path = None
     elif a.family and s.model:
         s.family = a.family
+    if a.family == "muse":
+        # A local experimental engine has no download sizes in the catalog.
+        if a.model and a.model.lower() != "local":
+            raise ValueError("Muse uses existing GGUF files: leave out --model and give --model-path.")
+        s.family, s.model = "muse", "local"
     if a.data_dir:
         from strata_control import folders
         found = folders.problem(a.data_dir)
@@ -230,6 +244,8 @@ def settings_from_args(a: argparse.Namespace, catalog=None) -> tuple[S.LaunchSet
             raise ValueError(folders.words(found))                  # one plain line and a next step, before anything is written (B05)
         s.data_dir = a.data_dir
     if a.context:
+        if a.context < 1024 and s.family != "muse":
+            S.parse_context(a.context)
         s.context = a.context
     if a.kv:
         s.kv = a.kv
@@ -331,7 +347,7 @@ def apply_defaults(s: S.LaunchSettings, catalog) -> tuple[S.LaunchSettings, list
         else:
             notices.append(S.Notice("error", "No model fits this computer by Strata's rules, and none was chosen.",
                                     "Name one with --model (strata launch --help lists them); a bigger one will run slowly."))
-    if s.family and s.model:
+    if s.family and s.model and s.family != "muse":
         if s.context is None:
             s.context = catalog.max_context(s.family, s.model, hw)
         rows = [r for r in catalog.rows(hw) if r.family == s.family and r.model == s.model]
@@ -370,10 +386,14 @@ def apply_defaults(s: S.LaunchSettings, catalog) -> tuple[S.LaunchSettings, list
         else:
             notices.append(S.Notice("warn", "A new API key was made, because the server is shared beyond this computer.",
                                     "It is saved with the preset; show it with: strata launch --show-key"))
-    notices += gpu_notices(s, comp)
+    if s.family == "muse":
+        s.vision, s.parallel = "off", 1
+    if s.family != "muse":
+        notices += gpu_notices(s, comp)
     notices += S.check_access(s)
     vram = comp.main_vram_gb or None
-    notices += S.check_parallel(s, vram_gb=vram)
+    if s.family != "muse":
+        notices += S.check_parallel(s, vram_gb=vram)
     return s, notices
 
 
@@ -800,7 +820,7 @@ def run_launch(a: argparse.Namespace) -> int:
         runner.s, runner.move_data = s, move_data
         if a.plan:
             plan = runner.plan()
-            plan["warnings"] = [n.line() for n in notes]
+            plan["warnings"] = [*plan["warnings"], *[n.line() for n in notes]] if s.family == "muse" else [n.line() for n in notes]
             if machine:
                 print(json.dumps({"schema_version": 1, "ok": True, "plan": plan}))
             else:

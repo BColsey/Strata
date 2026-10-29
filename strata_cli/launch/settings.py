@@ -62,7 +62,7 @@ def fit_parallel(vram_gb: float | None) -> int:
     return 1
 
 
-def parse_context(text: Any) -> int:
+def parse_context(text: Any, *, minimum: int = 1024) -> int:
     """`128k`, `128K`, `131072` or `64 K` -> tokens. 1K is 1024 tokens (the engine's and setup's unit)."""
     raw = str(text).strip().lower().replace(" ", "").replace("_", "").replace(",", "")
     m = re.fullmatch(r"(\d+(?:\.\d+)?)(k|m)?", raw)
@@ -70,7 +70,7 @@ def parse_context(text: Any) -> int:
         raise ValueError(f"'{text}' is not a context size. Use a number of tokens or a size such as 32k, 64k, 128k, 256k.")
     value = float(m.group(1)) * {"k": 1024, "m": 1024 * 1024, None: 1}[m.group(2)]
     n = int(round(value))
-    if n < 1024:
+    if n < minimum:
         raise ValueError(f"A context of {n} tokens is too small to be useful; the smallest size offered is 8k.")
     return n
 
