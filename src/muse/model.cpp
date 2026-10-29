@@ -440,7 +440,9 @@ struct Model::Impl {
             for (size_t d = 0; d < g.rotary_dim / 2; ++d) {
                 const float theta = float(position) / std::pow(g.rope_base, 2.0f * float(d) / float(g.rotary_dim));
                 const float c = std::cos(theta), s = std::sin(theta);
-                const size_t i = h * g.head_dim + d, j = i + g.rotary_dim / 2;
+                // The GGUF converter unpermutes HF's half-split Q/K rows
+                // into adjacent pairs (GGML_ROPE_TYPE_NORM).
+                const size_t i = h * g.head_dim + 2 * d, j = i + 1;
                 const float a = x[i], b = x[j]; x[i] = a * c - b * s; x[j] = a * s + b * c;
             }
     }

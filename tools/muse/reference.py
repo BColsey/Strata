@@ -49,13 +49,18 @@ def sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 def rope(x: np.ndarray, base: float) -> np.ndarray:
-    """NeoX half-split RoPE; x is [token, head, head_dim]."""
+    """GGUF adjacent-pair RoPE; x is [token, head, head_dim].
+
+    The Muse converter has already unpermuted HF's half-split Q/K rows.
+    """
     half = x.shape[-1] // 2
     frequency = F(base) ** (-np.arange(half, dtype=F) / F(half))
     angle = np.arange(x.shape[0], dtype=F)[:, None, None] * frequency[None, None, :]
     c, s = np.cos(angle), np.sin(angle)
-    a, b = x[..., :half], x[..., half:]
-    return np.concatenate((a * c - b * s, b * c + a * s), axis=-1)
+    a, b = x[..., 0::2], x[..., 1::2]
+    result = np.empty_like(x)
+    result[..., 0::2], result[..., 1::2] = a * c - b * s, b * c + a * s
+    return result
 
 
 def route(x: np.ndarray, router: np.ndarray, bias: np.ndarray,
