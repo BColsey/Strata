@@ -229,9 +229,27 @@ class GraphTests(unittest.TestCase):
         result = reference.rope(x, 10000)
         np.testing.assert_array_equal(result[0], x[0])
         angles = np.array([1, 0.01], dtype=np.float32)
-        expected = np.r_[x[1, 0, :2] * np.cos(angles) - x[1, 0, 2:] * np.sin(angles),
-                         x[1, 0, 2:] * np.cos(angles) + x[1, 0, :2] * np.sin(angles)]
+        expected = np.array([np.cos(1) - 2 * np.sin(1), np.sin(1) + 2 * np.cos(1),
+                             3 * np.cos(0.01) - 4 * np.sin(0.01), 3 * np.sin(0.01) + 4 * np.cos(0.01)])
         np.testing.assert_allclose(result[1, 0], expected, atol=1e-7)
+
+    def test_gguf_rope_matches_converter_permutation(self):
+        # Muse's HF converter unpermutes each Q/K head from half-split to
+        # adjacent real/imaginary pairs. Rotating the converted activations
+        # must agree with converting the HF rotation, not rotating halves a
+        # second time. This checks the serialized layout independently of the
+        # native implementation and the oracle's own helper.
+        x = np.arange(5 * 2 * 8, dtype=np.float32).reshape(5, 2, 8) / 17
+        angle = np.arange(5, dtype=np.float32)[:, None, None] * \
+            (np.float32(10000) ** (-np.arange(4, dtype=np.float32) / 4))[None, None, :]
+        a, b = x[..., :4], x[..., 4:]
+        hf = np.concatenate((a * np.cos(angle) - b * np.sin(angle),
+                             b * np.cos(angle) + a * np.sin(angle)), axis=-1)
+
+        def converted(value):
+            return value.reshape(5, 2, 2, 4).swapaxes(-2, -1).reshape(5, 2, 8)
+
+        np.testing.assert_allclose(reference.rope(converted(x), 10000), converted(hf), rtol=1e-6, atol=1e-6)
 
     def test_fixture_exercises_all_experts_and_bias_changes_selection(self):
         selections = []
