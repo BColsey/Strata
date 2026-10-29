@@ -1,4 +1,5 @@
 #include "strata/muse/model.hpp"
+#include "protocol.hpp"
 #include "ggml.h"
 #include <algorithm>
 #include <cmath>
@@ -161,6 +162,19 @@ void arguments() {
     rejects([&] { parse(bad); }, "duplicate resident mode accepted");
     rejects([&] { checked_mul(SIZE_MAX, 2); }, "multiply overflow accepted");
     rejects([&] { checked_add(SIZE_MAX, 1); }, "addition overflow accepted");
+    check(protocol_error(std::string("bad\r\n\0DONE", 10)) == "ERR bad   DONE", "protocol error injection accepted");
+    check(protocol_error(std::string(4096, 'x')).size() == 1028, "protocol error length is unbounded");
+    // Pure geometry: exercise the near-cap policy without allocating hundreds
+    // of MiB or depending on the machine's available memory.
+    Geometry g;
+    g.hidden = g.vocab = g.layers = g.heads = g.kv_heads = g.latent = g.experts = g.top_k = 1;
+    g.head_dim = g.rotary_dim = 2; g.train_context = UINT32_MAX; g.window = 1;
+    g.ff = {1}; g.local = {false};
+    const auto fixed = g.memory_bytes(1) - 20; // 16 bytes KV + 4 bytes attention scores per position.
+    const auto fits = (host_budget_bytes - fixed - resident_line_bytes) / 36;
+    check(resident_memory_bytes(g, fits) <= host_budget_bytes, "resident rejected budget boundary");
+    check(g.memory_bytes(fits + 1) < host_budget_bytes, "resident guard changed original CLI budget");
+    rejects([&] { resident_memory_bytes(g, fits + 1); }, "resident protocol storage exceeded budget");
 }
 void malformed(const std::filesystem::path& file) {
     auto reject = [&](const std::function<void(Fixture&)>& change) {

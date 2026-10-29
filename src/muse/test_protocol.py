@@ -233,6 +233,15 @@ class Protocol(unittest.TestCase):
             self.assertIn("16 MiB", peer.request("X" * (16 * 1024 * 1024 + 1))[0])
             self.completed(peer.request(self.command(1)), TOKENS)
 
+    def test_error_line_cannot_inject_protocol_bytes(self):
+        with Peer(self.model) as peer:
+            response = peer.request("GEN 1 bad\r\0key=1 1")
+            self.assertEqual(len(response), 1)
+            self.assertTrue(response[0].startswith("ERR "))
+            self.assertNotIn("\r", response[0])
+            self.assertNotIn("\0", response[0])
+            self.completed(peer.request(self.command(1)), TOKENS)
+
     def test_stop_during_prefill_and_next_request(self):
         prompt = [1] * 1024
         with Peer(self.model) as peer:
@@ -248,7 +257,9 @@ class Protocol(unittest.TestCase):
             prefix = []
             while not prefix or not prefix[-1].startswith("T "):
                 prefix.append(peer.read())
-            peer.send(self.command(1))
+            # Busy admission happens before even parsing this malformed token
+            # list, so a rejected request cannot allocate a second large prompt.
+            peer.send("GEN 1 not-a-token")
             peer.send("STOP")
             lines = prefix
             rejected = False

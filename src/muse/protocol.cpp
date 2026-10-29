@@ -1,4 +1,4 @@
-#include "strata/muse/model.hpp"
+#include "protocol.hpp"
 #include <algorithm>
 #include <atomic>
 #include <charconv>
@@ -19,25 +19,36 @@
 #include <thread>
 
 namespace strata::muse {
+size_t resident_memory_bytes(const Geometry& geometry, size_t context) {
+    const auto bytes = checked_add(geometry.memory_bytes(context),
+        checked_add(resident_line_bytes, checked_mul(context, size_t(16))));
+    if (bytes > host_budget_bytes)
+        throw std::runtime_error("Muse: KV, scratch and resident protocol storage exceed 1 GiB; reduce context");
+    return bytes;
+}
+std::string protocol_error(std::string_view message) {
+    std::string clean(message.substr(0, 1024));
+    std::replace_if(clean.begin(), clean.end(), [](char c) { return c == '\r' || c == '\n' || c == '\0'; }, ' ');
+    return "ERR " + clean;
+}
 namespace {
 using Clock = std::chrono::steady_clock;
-constexpr size_t max_line_bytes = 16 * 1024 * 1024;
 struct Cancelled {};
 [[noreturn]] void bad(const std::string& message) { throw std::runtime_error("Muse: " + message); }
 
 // getline would allocate without a bound before we could reject a hostile line.
 // Discard its remainder so a later valid command can still be read.
-bool read_line(std::string& line, bool& oversized) {
-    line.clear(); oversized = false;
+bool read_line(char* line, size_t& size, bool& oversized) {
+    size = 0; oversized = false;
     char c;
     bool read = false;
     while (std::cin.get(c)) {
         read = true;
         if (c == '\n') break;
-        if (line.size() < max_line_bytes) line.push_back(c);
+        if (size < resident_line_bytes) line[size++] = c;
         else oversized = true;
     }
-    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (size && line[size - 1] == '\r') --size;
     return read;
 }
 std::string_view word(std::string_view& text) {
@@ -85,8 +96,9 @@ Request parse_request(std::string_view text, size_t context, size_t vocab) {
         if (token.empty()) break;
         const auto eq = token.find('=');
         if (eq == token.npos) { ids = token; break; }
+        if (eq > 32) bad("invalid sampling option");
         const std::string key(token.substr(0, eq));
-        if (key.size() > 32 || !seen.insert(key).second) bad("duplicate/invalid sampling option");
+        if (!seen.insert(key).second) bad("duplicate sampling option");
         const auto value = token.substr(eq + 1);
         if (key == "seed") r.seed = integer(value, "seed");
         else if (key == "top_k") {
@@ -107,6 +119,7 @@ Request parse_request(std::string_view text, size_t context, size_t vocab) {
     if (r.temperature < 0 || r.top_p <= 0 || r.top_p > 1 || r.min_p < 0 || r.min_p > 1 || r.repeat <= 0)
         bad("sampling option outside its valid range");
     if (ids.empty() || !word(text).empty()) bad("expected one comma-separated prompt token list");
+    r.tokens.reserve(context - r.maximum);
     while (true) {
         if (r.tokens.size() >= context - r.maximum) bad("prompt plus generation exceeds context");
         const auto comma = ids.find(',');
@@ -180,9 +193,7 @@ class Resident {
         std::cout << text << '\n' << std::flush;
     }
     void error(const std::string& message) {
-        auto clean = message.substr(0, 1024);
-        std::replace_if(clean.begin(), clean.end(), [](char c) { return c == '\r' || c == '\n' || c == '\0'; }, ' ');
-        line("ERR " + clean);
+        line(protocol_error(message));
     }
     std::string generate(const Request& request) {
         const auto start = Clock::now();
@@ -208,7 +219,9 @@ class Resident {
                 if (processed == request.tokens.size() || processed % 16 == 0) progress();
             }
             prompt_end = Clock::now(); decoding = true;
-            auto history = request.tokens;
+            std::vector<uint32_t> history;
+            history.reserve(context);
+            history.insert(history.end(), request.tokens.begin(), request.tokens.end());
             uint64_t seed = request.seed;
             if (!seed) { std::random_device device; seed = (uint64_t(device()) << 32) ^ device(); }
             std::mt19937_64 rng(seed);
@@ -242,8 +255,8 @@ class Resident {
             lock.unlock();
             std::string result;
             try { result = generate(request); }
-            catch (const std::exception& e) { result = "ERR " + std::string(e.what()).substr(0, 1024); }
-            catch (...) { result = "ERR Muse: request failed"; }
+            catch (const std::exception& e) { result = protocol_error(e.what()); }
+            catch (...) { result = protocol_error("Muse: request failed"); }
             lock.lock();
             // Publish completion before admitting the next command. A STOP that
             // races with completion can never cancel the following request.
@@ -262,18 +275,23 @@ class Resident {
     }
 public:
     explicit Resident(const Options& options)
-        : model(options.model, options.context, options.backend, int(options.gpu)), context(options.context), backend(options.backend) {}
+        : model(options.model, options.context, options.backend, int(options.gpu)), context(options.context), backend(options.backend) {
+        resident_memory_bytes(model.geometry(), context);
+    }
     ~Resident() { stop(); }
     void run() {
+        // Fixed storage avoids std::string growth capacity exceeding the line
+        // allowance accounted by resident_memory_bytes().
+        auto input = std::make_unique<char[]>(resident_line_bytes);
         worker = std::thread([&] { work(); });
         line("INFO arch=muse-spark backend=" + backend + " engine=muse-reference batch_slots=0 logprobs=0 prefix_cache=0");
         line("READY " + std::to_string(context) + " stop");
-        std::string input;
+        size_t input_size = 0;
         bool oversized = false;
-        while (read_line(input, oversized)) {
+        while (read_line(input.get(), input_size, oversized)) {
             if (oversized) { error("Muse: command exceeds 16 MiB limit"); continue; }
             try {
-                std::string_view rest(input);
+                std::string_view rest(input.get(), input_size);
                 const auto command = word(rest);
                 if (command == "STOP") {
                     if (!word(rest).empty()) bad("STOP takes no arguments");
@@ -283,6 +301,10 @@ public:
                     if (!word(rest).empty()) bad("QUIT takes no arguments");
                     break;
                 } else if (command == "GEN") {
+                    {
+                        std::lock_guard<std::mutex> lock(state_mutex);
+                        if (active) bad("engine is busy; wait for DONE before GEN");
+                    }
                     auto request = parse_request(rest, context, model.geometry().vocab);
                     std::lock_guard<std::mutex> lock(state_mutex);
                     if (active) bad("engine is busy; wait for DONE before GEN");
