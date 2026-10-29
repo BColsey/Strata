@@ -77,7 +77,7 @@ def weights() -> dict[str, np.ndarray]:
     for name, shape in tensor_shapes().items():
         if name.endswith("exp_probs_b.bias"):
             # Changes top-2 selection without being used in the mixture weights.
-            bias = [0.16, -0.105, 0.065, -0.045] if name.startswith("blk.0.") else [-0.04, 0.035, -0.1, 0.12]
+            bias = [0.23, -0.105, 0.065, -0.045] if name.startswith("blk.0.") else [-0.04, 0.035, -0.1, 0.12]
             value = np.array(bias, dtype=np.float32)
         elif "resid_" in name:
             # Already-folded, physically consistent alpha=sqrt(1-beta**2).
