@@ -222,78 +222,6 @@ void rms(float* x, size_t n, float eps) {
 float sigmoid(float x) { return x >= 0 ? 1.0f / (1.0f + std::exp(-x)) : std::exp(x) / (1.0f + std::exp(x)); }
 } // namespace
 
-size_t checked_add(size_t a, size_t b) {
-    if (b > std::numeric_limits<size_t>::max() - a) fail("size arithmetic overflow");
-    return a + b;
-}
-size_t checked_mul(size_t a, size_t b) {
-    if (a && b > std::numeric_limits<size_t>::max() / a) fail("size arithmetic overflow");
-    return a * b;
-}
-uint32_t parse_uint(const std::string& s, const char* name) {
-    if (s.empty()) fail(std::string("empty ") + name);
-    uint32_t n = 0;
-    for (char c : s) {
-        if (c < '0' || c > '9' || n > (UINT32_MAX - uint32_t(c - '0')) / 10)
-            fail(std::string("invalid/out-of-range ") + name);
-        n = n * 10 + uint32_t(c - '0');
-    }
-    return n;
-}
-std::vector<uint32_t> parse_tokens(const std::string& s) {
-    if (s.size() > 16 * 1024 * 1024) fail("token list too large");
-    std::vector<uint32_t> out;
-    size_t start = 0;
-    do {
-        const size_t end = s.find(',', start);
-        out.push_back(parse_uint(s.substr(start, end == std::string::npos ? end : end - start), "token"));
-        if (end == std::string::npos) break;
-        start = end + 1;
-    } while (true);
-    return out;
-}
-Options parse_options(int argc, const char* const* argv) {
-    Options o; std::set<std::string> seen;
-    for (int i = 1; i < argc; ++i) {
-        const std::string key(argv[i]);
-        if (!seen.insert(key).second) fail("duplicate argument " + key);
-        if (key != "--model" && key != "--tokens" && key != "--ctx" && key != "--steps" &&
-            key != "--backend" && key != "--gpu" && key != "--logits-file") fail("unknown argument " + key);
-        if (++i == argc) fail("missing value for " + key);
-        const std::string v(argv[i]);
-        if (key == "--model") o.model = v;
-        else if (key == "--tokens") o.tokens = parse_tokens(v);
-        else if (key == "--ctx") o.context = parse_uint(v, "context");
-        else if (key == "--steps") o.steps = parse_uint(v, "steps");
-        else if (key == "--gpu") o.gpu = parse_uint(v, "GPU");
-        else if (key == "--backend") o.backend = v;
-        else o.logits_file = v;
-    }
-    if (o.model.empty() || o.logits_file.empty() || o.tokens.empty()) fail("--model, --tokens and --logits-file are required");
-    if (!o.context || o.tokens.size() > o.context || o.steps > o.context - o.tokens.size())
-        fail("prompt plus generation exceeds context");
-    if (o.backend != "cpu" && o.backend != "cuda") fail("backend must be cpu or cuda");
-    if (o.gpu > uint32_t(std::numeric_limits<int>::max())) fail("GPU index out of range");
-    return o;
-}
-size_t Geometry::memory_bytes(size_t context) const {
-    if (!context || context > train_context || !layers || !hidden || !vocab || !heads || !kv_heads ||
-        !head_dim || !latent || !experts || !top_k || ff.size() != layers || local.size() != layers)
-        fail("invalid context/geometry");
-    const size_t qwidth = checked_mul(heads, head_dim), kvwidth = checked_mul(kv_heads, head_dim);
-    size_t width = std::max({hidden, vocab, qwidth, kvwidth, latent, experts});
-    for (auto n : ff) { if (!n) fail("zero expert FF dimension"); width = std::max(width, n); }
-    if (width > tile_bytes / sizeof(float)) fail("geometry exceeds bounded row/activation size");
-    size_t kv = 0;
-    for (size_t i = 0; i < layers; ++i)
-        kv = checked_add(kv, checked_mul(checked_mul(local[i] ? std::min(context, window) : context, kvwidth), 2));
-    // Conservative bound: live vector temporaries, indices, attention scores,
-    // full logits, and one decoded tile. Output is streamed, not stored per token.
-    const size_t scratch = checked_add(tile_bytes, checked_mul(checked_add(checked_mul(width, 64), context), sizeof(float)));
-    const size_t bytes = checked_add(checked_mul(kv, sizeof(float)), scratch);
-    if (bytes > host_budget_bytes) fail("KV plus scratch exceeds 1 GiB reference budget");
-    return bytes;
-}
 
 struct Model::Impl {
     Prepared prepared;
@@ -304,6 +232,8 @@ struct Model::Impl {
     struct KV { Vec key, value; size_t slots; };
     std::vector<KV> cache;
     std::set<uint32_t> end_tokens;
+    const std::function<void()>* checkpoint = nullptr;
+    void poll() const { if (checkpoint) (*checkpoint)(); }
 #ifdef STRATA_MUSE_CUDA
     std::unique_ptr<CudaMatvec> cuda;
 #endif
@@ -407,6 +337,7 @@ struct Model::Impl {
         const size_t batch = std::min(size_t(64), tile.size() / cols);
         Vec y(rows);
         for (size_t start = 0; start < rows; start += batch) {
+            poll();
             const size_t n = std::min(batch, rows - start);
             for (size_t r = 0; r < n; ++r) row(t, expert * rows + start + r, tile.data() + r * cols);
 #ifdef STRATA_MUSE_CUDA
@@ -456,8 +387,10 @@ struct Model::Impl {
         Vec out(q.size(), 0), scores(position + 1 - first);
         const float scale = 1.0f / std::sqrt(float(g.head_dim));
         for (size_t h = 0; h < g.heads; ++h) {
+            poll();
             const size_t kh = h / (g.heads / g.kv_heads);
             for (size_t t = first; t <= position; ++t) {
+                if ((t - first) % 64 == 0) poll();
                 const size_t offset = (t % kv.slots) * width + kh * g.head_dim;
                 float dot = 0;
                 for (size_t d = 0; d < g.head_dim; ++d) dot += q[h * g.head_dim + d] * kv.key[offset + d];
@@ -467,6 +400,7 @@ struct Model::Impl {
             float sum = 0;
             for (auto& s : scores) { s = std::exp(s - max); sum += s; }
             for (size_t t = first; t <= position; ++t) {
+                if ((t - first) % 64 == 0) poll();
                 const size_t offset = (t % kv.slots) * width + kh * g.head_dim;
                 const float p = scores[t - first] / sum;
                 for (size_t d = 0; d < g.head_dim; ++d) out[h * g.head_dim + d] += p * kv.value[offset + d];
@@ -480,6 +414,7 @@ struct Model::Impl {
         for (size_t i = 0; i < stream.size(); ++i) stream[i] = stream[i] * alpha[i] + branch[i] * beta[i];
     }
     Vec forward(uint32_t token) {
+        poll();
         if (token >= g.vocab) fail("token outside vocabulary");
         if (position >= context) fail("context exhausted");
         Vec x(g.hidden); row(tensor("token_embd.weight"), token, x.data());
@@ -533,6 +468,21 @@ Model::Model(const std::string& path, size_t context, const std::string& backend
 Model::~Model() = default;
 const Geometry& Model::geometry() const { return impl_->g; }
 std::vector<float> Model::forward(uint32_t token) { return impl_->forward(token); }
+std::vector<float> Model::forward(uint32_t token, const std::function<void()>& checkpoint) {
+    struct Clear {
+        const std::function<void()>*& slot;
+        ~Clear() { slot = nullptr; }
+    } clear{impl_->checkpoint};
+    impl_->checkpoint = checkpoint ? &checkpoint : nullptr;
+    return impl_->forward(token);
+}
+void Model::reset() {
+    impl_->position = 0;
+    for (auto& kv : impl_->cache) {
+        std::fill(kv.key.begin(), kv.key.end(), 0.0f);
+        std::fill(kv.value.begin(), kv.value.end(), 0.0f);
+    }
+}
 bool Model::is_end(uint32_t token) const { return impl_->end_tokens.count(token) != 0; }
 
 void run(const Options& o) {
@@ -540,36 +490,12 @@ void run(const Options& o) {
         o.tokens.size() > o.context || o.steps > o.context - o.tokens.size() || o.gpu > uint32_t(INT32_MAX))
         fail("invalid execution arguments/context");
     Model model(o.model, o.context, o.backend, int(o.gpu));
-    for (auto t : o.tokens) if (t >= model.geometry().vocab) fail("token outside vocabulary");
-    // Never overwrite an input shard with output, including equivalent/symlink paths.
-    const auto paths = gguf_split_paths(o.model);
-    for (const auto& p : paths) {
-        std::error_code ec;
-        if (std::filesystem::equivalent(p, o.logits_file, ec)) fail("output aliases a model shard");
-    }
-    std::ofstream out(o.logits_file, std::ios::trunc);
-    if (!out) fail("cannot open logits file");
-    out << std::setprecision(std::numeric_limits<float>::max_digits10) << "{\"tokens\":[";
-    for (size_t i = 0; i < o.tokens.size(); ++i) { if (i) out << ','; out << o.tokens[i]; }
-    out << "],\"logits\":[";
-    Vec logits;
-    for (size_t i = 0; i < o.tokens.size(); ++i) {
-        logits = model.forward(o.tokens[i]);
-        if (i) out << ',';
-        out << '[';
-        for (size_t j = 0; j < logits.size(); ++j) { if (j) out << ','; out << logits[j]; }
-        out << ']';
-        if (!out) fail("cannot write logits file");
-    }
-    out << "],\"generated_tokens\":[";
-    for (size_t i = 0; i < o.steps; ++i) {
-        const auto token = uint32_t(std::max_element(logits.begin(), logits.end()) - logits.begin());
-        if (i) out << ',';
-        out << token;
-        if (model.is_end(token)) break;
-        if (i + 1 < o.steps) logits = model.forward(token);
-    }
-    out << "]}\n"; out.close();
-    if (!out) fail("cannot finish logits file");
+    run(o, model);
+}
+void serve(const Options& o) {
+    if (!o.context || o.model.empty() || o.gpu > uint32_t(INT32_MAX))
+        fail("invalid resident execution arguments/context");
+    Model model(o.model, o.context, o.backend, int(o.gpu));
+    serve(o, model);
 }
 } // namespace strata::muse

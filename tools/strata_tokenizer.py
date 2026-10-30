@@ -77,6 +77,16 @@ DEEPSEEK3_PATTERNS = (
     r"| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+",
 )
 
+# Muse Spark's l4_202k vocabulary uses GPT-4o's pre-tokenizer. Transcribed
+# from llama.cpp src/llama-vocab.cpp, LLAMA_VOCAB_PRE_TYPE_GPT4O's original
+# tokenizer.json regex. Keep Unicode categories: an ASCII case approximation
+# splits accented and non-Latin words differently.
+GPT4O_PATTERN = (
+    r"[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]*[\p{Ll}\p{Lm}\p{Lo}\p{M}]+(?i:'s|'t|'re|'ve|'m|'ll|'d)?"
+    r"|[^\r\n\p{L}\p{N}]?[\p{Lu}\p{Lt}\p{Lm}\p{Lo}\p{M}]+[\p{Ll}\p{Lm}\p{Lo}\p{M}]*(?i:'s|'t|'re|'ve|'m|'ll|'d)?"
+    r"|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n/]*|\s*[\r\n]+|\s+(?!\S)|\s+"
+)
+
 
 def _sequence_findall(patterns, text: str) -> list[str]:
     """llama.cpp's unicode_regex_split: the pieces of `text` after each pattern in turn splits every piece into its
@@ -122,6 +132,9 @@ class Tokenizer:
         if str(pre).startswith("deepseek"):
             seq = [regex.compile(x) for x in DEEPSEEK3_PATTERNS]
             self._split = lambda text: _sequence_findall(seq, text)
+        elif pre in ("gpt-4o", "llama4"):
+            self._re = regex.compile(GPT4O_PATTERN)
+            self._split = self._re.findall
         else:
             self._re = regex.compile(QWEN35_PATTERN)
             self._split = self._re.findall
@@ -177,6 +190,10 @@ class Tokenizer:
             raise ValueError("expected a byte-level BPE tokenizer (model 'gpt2'), got %r" % model)
         special = {k: int(md[k]) for k in md
                    if k.startswith("tokenizer.ggml.") and k.endswith("_token_id")}
+        if md.get("general.architecture") == "muse-spark":
+            if md.get("tokenizer.ggml.pre") not in ("gpt-4o", "llama4"):
+                raise ValueError("Muse requires its GPT-4o/llama4 pre-tokenizer")
+            special = {k.removeprefix("tokenizer.ggml.").removesuffix("_token_id"): v for k, v in special.items()}
         return cls(list(md["tokenizer.ggml.tokens"]), list(md["tokenizer.ggml.merges"]),
                    list(md.get("tokenizer.ggml.token_type") or []) or None,
                    md.get("tokenizer.ggml.pre", "qwen35"), special)

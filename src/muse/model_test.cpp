@@ -1,4 +1,5 @@
 #include "strata/muse/model.hpp"
+#include "protocol.hpp"
 #include "ggml.h"
 #include <algorithm>
 #include <cmath>
@@ -151,8 +152,29 @@ void arguments() {
     bad = good; bad.insert(bad.end(), {"--ctx", "1"}); rejects([&] { parse(bad); }, "duplicate flag accepted");
     bad = good; bad[6] = "3"; rejects([&] { parse(bad); }, "context overrun accepted");
     bad = good; bad[10] = "hip"; rejects([&] { parse(bad); }, "unknown backend accepted");
+    auto resident = std::vector<const char*>{"strata-muse", "--model", "m", "--serve", "--max-context", "8"};
+    check(parse(resident).serve && parse(resident).context == 8, "resident options");
+    bad = resident; bad.insert(bad.end(), {"--tokens", "1"});
+    rejects([&] { parse(bad); }, "resident accepted reference-only options");
+    bad = resident; bad.insert(bad.end(), {"--ctx", "8"});
+    rejects([&] { parse(bad); }, "context alias accepted twice");
+    bad = resident; bad.push_back("--serve");
+    rejects([&] { parse(bad); }, "duplicate resident mode accepted");
     rejects([&] { checked_mul(SIZE_MAX, 2); }, "multiply overflow accepted");
     rejects([&] { checked_add(SIZE_MAX, 1); }, "addition overflow accepted");
+    check(protocol_error(std::string("bad\r\n\0DONE", 10)) == "ERR bad   DONE", "protocol error injection accepted");
+    check(protocol_error(std::string(4096, 'x')).size() == 1028, "protocol error length is unbounded");
+    // Pure geometry: exercise the near-cap policy without allocating hundreds
+    // of MiB or depending on the machine's available memory.
+    Geometry g;
+    g.hidden = g.vocab = g.layers = g.heads = g.kv_heads = g.latent = g.experts = g.top_k = 1;
+    g.head_dim = g.rotary_dim = 2; g.train_context = UINT32_MAX; g.window = 1;
+    g.ff = {1}; g.local = {false};
+    const auto fixed = g.memory_bytes(1) - 20; // 16 bytes KV + 4 bytes attention scores per position.
+    const auto fits = (host_budget_bytes - fixed - resident_line_bytes) / 36;
+    check(resident_memory_bytes(g, fits) <= host_budget_bytes, "resident rejected budget boundary");
+    check(g.memory_bytes(fits + 1) < host_budget_bytes, "resident guard changed original CLI budget");
+    rejects([&] { resident_memory_bytes(g, fits + 1); }, "resident protocol storage exceeded budget");
 }
 void malformed(const std::filesystem::path& file) {
     auto reject = [&](const std::function<void(Fixture&)>& change) {
@@ -390,6 +412,21 @@ void execution(const std::filesystem::path& dir) {
     // must change a later result; the prompt crosses the local ring boundary.
     Model fresh(path.string(), 16);
     check(fresh.forward(9) != reference.back(), "KV history ignored");
+    // Replay crosses the local KV ring boundary. Reset must also restore global
+    // position; reusing either state would diverge from the fresh-model oracle.
+    a.reset();
+    size_t reset_index = 0;
+    for (auto token : {1u, 5u, 8u, 3u, 7u, 2u, 9u})
+        check(a.forward(token) == reference[reset_index++], "reset retained KV/position");
+    one.reset();
+    check(one.forward(1) == reference.front(), "reset did not recover exhausted context");
+    size_t checkpoints = 0;
+    a.reset();
+    rejects([&] { a.forward(1, [&] { if (++checkpoints == 4) throw std::runtime_error("cancel"); }); },
+            "checkpoint failed to interrupt inside a token");
+    check(checkpoints == 4, "checkpoint was only tested between tokens");
+    a.reset();
+    check(a.forward(1) == reference.front(), "interruption retained callback/KV state");
     Fixture mixed(true); mixed.save(dir / "mixed.gguf");
     Model quant((dir / "mixed.gguf").string(), 16);
     size_t i = 0;

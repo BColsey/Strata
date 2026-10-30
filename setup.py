@@ -655,6 +655,14 @@ OWN_PATH_FAMILIES = {
                # the 30 GDN layers (state_gb)
                "vision": True, "state_gb": 0.07}
 }
+# Explicit local-file families have no release artifacts or default menu entry.
+# They are selected with strata launch --family NAME --model-path PATH.
+LOCAL_FILE_FAMILIES = {
+    "muse": {"title": "Muse Spark reference", "by": "experimental local engine", "arch": "muse",
+             "about": "existing GGUF files only; CPU or one CUDA card; full-checkpoint behavior unmeasured",
+             "tag": "muse-", "name": "muse-spark-reference", "vision": False,
+             "local_only": True, "experimental": True, "models": {}}
+}
 PREVIEW_FAMILIES = OWN_PATH_FAMILIES             # the earlier name (tools and tests that import it)
 
 # DeepSeek-V4.1-Flash (GGUF architecture deepseek41), Unsloth's UD-Q8_K_XL at the revision the port was checked against: a

@@ -22,7 +22,7 @@ ARCH = "muse-spark"
 def metadata() -> dict:
     """Literal key spellings from the published GGUF header; no HF mask flags."""
     values = {
-        "block_count": 2, "context_length": 32, "embedding_length": 64,
+        "block_count": 2, "context_length": 32, "embedding_length": 64, "vocab_size": 64,
         "feed_forward_length": 32, "attention.head_count": 4,
         "attention.head_count_kv": 2, "attention.key_length": 16,
         "attention.value_length": 16, "rope.freq_base": 500000.0,

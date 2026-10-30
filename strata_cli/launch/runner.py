@@ -696,6 +696,10 @@ class Runner:
 
     # ---- 1. the engine
     def ensure_engine(self) -> None:
+        if self.s.family == "muse":
+            self._muse_engine()
+            self.emit("engine", "Using the local experimental Muse engine; nothing is downloaded.", 100)
+            return
         self.warn_wsl_amd()
         if self.multi_file():                                # DeepSeek: its own engine package (setup fetches it); the Strata engine is not used
             self.emit("engine", "DeepSeek runs on its own engine package, so the Strata engine is not downloaded for it.", 100)
@@ -848,6 +852,8 @@ class Runner:
     def resolved_vision(self) -> str:
         """The picture setting of this launch: the chosen one, or (nothing chosen) the default for this model and engine (catalog.picture_default)."""
         s = self.s
+        if s.family == "muse":
+            return "off"
         if s.vision is None:
             row = next((r for r in self.catalog.rows() if (r.family, r.model) == (s.family, s.model)), None)
             s.vision = self.catalog.picture_default(bool(row.images) if row is not None else False)
@@ -1091,6 +1097,21 @@ class Runner:
     def ensure_model(self) -> Path:
         s, cat = self.s, self.catalog
         self.check_own_files()
+        if s.family == "muse":
+            from strata_control import muse
+            bundle = self._muse_bundle()
+            exe = self._muse_engine()
+            folder = launch_dir() / self.name
+            tokenizer = muse.prepare_tokenizer(bundle, folder / "tokenizer")
+            backend, backend_args = self._muse_backend()
+            args = ["--model", str(bundle.paths[0]), "--max-context", str(bundle.context), *backend_args]
+            cfg = {"exe": str(exe), "args": args, "arch": "muse",
+                   "model_name": "muse-spark-llama" if backend.startswith("llama-") else "muse-spark-reference",
+                   "tokenizer": str(tokenizer), "cwd": str(cat.src), "backend": backend,
+                   "lib_dirs": [str(exe.parent)], "parallel": 1, "engine_ready_s": 900}
+            base = folder / "model.json"
+            write_private(base, cfg)
+            return base
         self.resolved_vision()
         if not (s.family and s.model):
             raise LaunchError("No model was chosen.", "Choose a model, or use --model NAME (strata launch --help lists them).", 2)
@@ -1321,6 +1342,11 @@ class Runner:
     def check_own_files(self) -> None:
         """The person's own model files, looked at once: a path that is not there or holds no model is said in plain words first, and the
         files are matched to the catalog model (resolve_own_files). Nothing else is done with a path that was already checked."""
+        if self.s.family == "muse":
+            bundle = self._muse_bundle()
+            self.s.model, self.s.model_path, self.s.context = "local", str(bundle.paths[0]), bundle.context
+            self._own_checked = True
+            return
         if self.s.model_path and not self._own_checked:
             self.resolve_own_files()
             self._own_checked = True
@@ -1384,6 +1410,8 @@ class Runner:
     def ensure_drafter(self, base_path: Path) -> None:
         """Fetch the DFlash2 drafter when this launch will use it and it is not here yet. Never stops the launch: if it cannot be had, the model
         starts with the MTP and the person is told (recommend, never force)."""
+        if self.s.family == "muse":
+            return
         from strata_control import drafting, drafting_fetch
         try:
             want = self.drafting_inputs(read_config(base_path))
@@ -1408,7 +1436,8 @@ class Runner:
         from strata_control import tune_knobs
         base = read_config(base_path)
         cfg = derive_config(base, self.s, bool_flags=tune_knobs.BOOL_FLAGS,
-                            log=str(launch_dir() / f"{self.name}.engine.log"), gpus=cards_for_launch(self.s, self.catalog, base=base))
+                            log=str(launch_dir() / f"{self.name}.engine.log"),
+                            gpus=None if self.s.family == "muse" else cards_for_launch(self.s, self.catalog, base=base))
         self.use_own_dsv41_engine(cfg)
         apply_experts(cfg, self.experts_flag(cfg.get("exe")))   # after the engine is settled: only a 0.1.50+ engine is given --experts
         wait = self.start_wait()
@@ -1446,6 +1475,8 @@ class Runner:
             return False
 
     def catalog_parallel(self) -> int | None:
+        if self.s.family == "muse":
+            return 1
         if self.multi_file():                                # the DeepSeek engine answers one request at a time: no --batch to pass
             return None
         try:
@@ -1499,6 +1530,9 @@ class Runner:
         self.emit("tune", " ".join(result.get("lines") or ["Tuning finished."]), 100, level="info", word=self.tune_word)
 
     def tune(self) -> None:
+        if self.s.family == "muse":
+            self.tune_word = None
+            return
         s = self.s
         if s.tune == "skip":
             return
@@ -1878,6 +1912,9 @@ class Runner:
     def download_plan(self) -> dict:
         """What this launch would download, in numbers and words (nothing is changed): the model's missing files, and for a model that is
         not on this computer yet also the draft layer and the picture reader that setup fetches after it. 0 when everything is here."""
+        if self.s.family == "muse":
+            return {"gb": 0.0, "parts": [], "engine_missing": False, "engine_usable": True, "own_files": True,
+                    "text": "Nothing to download: Muse uses your GGUF files and a local engine; no release feed artifacts are offered."}
         from strata_control import engine_component
         from strata_control.discovery import MMPROJ_GB, MTP_FETCH_GB
         s = self.s
@@ -2003,6 +2040,24 @@ class Runner:
     def plan(self) -> dict:
         s = self.s
         self.check_own_files()
+        if s.family == "muse":
+            from strata_control.muse import TILE_BYTES
+            bundle, exe = self._muse_bundle(), self._muse_engine()
+            backend, backend_args = self._muse_backend()
+            args = ["--serve", "--model", str(bundle.paths[0]), "--max-context", str(bundle.context), *backend_args]
+            cache_mib = int(backend_args[backend_args.index("--moe-cache-mib") + 1]) if "--moe-cache-mib" in backend_args else 0
+            placement = bundle.plan(backend, cache_mib)
+            if not backend.startswith("llama-"):
+                placement["device_buffers_bytes"] = 2 * TILE_BYTES + 256 if backend == "cuda" else 0
+                placement["lines"].append("CUDA uses decoded matvec tiles on one card (8 MiB + 256 bytes of device buffers, plus CUDA/cuBLAS overhead); attention, routing and KV stay on the CPU."
+                                          if backend == "cuda" else "CPU computes the reference graph; no graphics card is used.")
+            return {"profile": self.profile, "settings": s.to_dict(with_key=False), "warnings": [n.line() for n in S.check_access(s)],
+                    "flags": S.flags_text(s), "steps": list(STAGES), "drafting": "", "speed": "",
+                    "model": {"title": "Muse Spark experimental quantized" if backend.startswith("llama-") else "Muse Spark experimental reference",
+                              "family": "muse", "model": "local",
+                              "model_gb": bundle.mapped_bytes / 1e9, "own_files": True, "folder": str(bundle.paths[0])},
+                    "engine": {"exe": str(exe), "args": args, "backend": backend},
+                    "download": self.download_plan(), "placement": placement}
         warns = [n.line() for n in (*S.check_access(s),)]
         warns += self.preflight_words()
         row = self.row()
@@ -2024,6 +2079,43 @@ class Runner:
         if self.multi_file():
             out["placement"] = self.placement()
         return out
+
+    def _muse_backend(self):
+        from strata_control import muse
+        backend = os.environ.get("STRATA_MUSE_BACKEND", "cuda" if self.s.gpus else "cpu").strip().lower()
+        if self.s.gpu_roles:
+            raise LaunchError("Muse does not support Qwen GPU roles.", "Use --gpu with llama-cuda for a layer split.", 2)
+        try:
+            args = muse.backend_args(backend, self.s.gpus, os.environ.get("STRATA_MUSE_MOE_CACHE_MIB"),
+                                     os.environ.get("STRATA_MUSE_THREADS"))
+        except muse.MuseError as exc:
+            raise LaunchError(str(exc), "", 2) from None
+        return backend, args
+
+    def _muse_bundle(self):
+        from strata_control import muse
+        s = self.s
+        if not s.model_path:
+            raise LaunchError("Muse needs an existing GGUF supplied with --model-path; nothing is downloaded.", "", 2)
+        if s.vision not in (None, "off") or s.parallel not in (None, 1) or s.kv is not None:
+            raise LaunchError("Muse reference is text-only, one request at a time, with FP32 KV; vision, parallel slots and --kv are unsupported.", "", 2)
+        if s.tune != "skip" or s.speed or s.mtp not in (None, "off") or s.drafting not in (None, "off") or s.extra:
+            raise LaunchError("Muse reference does not support tuning, speed modes, drafting or advanced engine overrides.", "Leave those options out.", 2)
+        backend, _ = self._muse_backend()
+        try:
+            return muse.inspect_model(s.model_path, s.context, backend=backend)
+        except (OSError, ValueError) as exc:
+            raise LaunchError(str(exc), "", 2) from None
+
+    def _muse_engine(self):
+        from strata_control import muse
+        roots = [self.catalog.root, self.catalog.src]
+        if self.s.data_dir:
+            roots.append(Path(self.s.data_dir))
+        try:
+            return muse.find_engine(roots, self._muse_backend()[0])
+        except muse.MuseError as exc:
+            raise LaunchError(str(exc), "", 5) from None
 
     def resolved_speed(self) -> tuple[str, bool] | None:
         """DeepSeek's speed: ("faster" | "full", whether it is the default for this PC); None for any other model. The default is the engine's own

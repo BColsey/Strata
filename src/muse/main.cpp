@@ -9,7 +9,8 @@ int main(int argc, char** argv) {
         if (options.backend == "cuda") std::cerr << " device=" << options.gpu;
         else std::cerr << " device=host";
         std::cerr << '\n';
-        strata::muse::run(options);
+        if (options.serve) strata::muse::serve(options);
+        else strata::muse::run(options);
         return 0;
     } catch (const std::bad_alloc&) {
         std::cerr << "Muse: out of host memory; reduce context/geometry\n";
