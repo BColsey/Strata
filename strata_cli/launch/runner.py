@@ -1103,11 +1103,10 @@ class Runner:
             exe = self._muse_engine()
             folder = launch_dir() / self.name
             tokenizer = muse.prepare_tokenizer(bundle, folder / "tokenizer")
-            backend, gpu = self._muse_backend()
-            args = ["--model", str(bundle.paths[0]), "--max-context", str(bundle.context), "--backend", backend]
-            if backend == "cuda":
-                args += ["--gpu", str(gpu)]
-            cfg = {"exe": str(exe), "args": args, "arch": "muse", "model_name": "muse-spark-reference",
+            backend, backend_args = self._muse_backend()
+            args = ["--model", str(bundle.paths[0]), "--max-context", str(bundle.context), *backend_args]
+            cfg = {"exe": str(exe), "args": args, "arch": "muse",
+                   "model_name": "muse-spark-llama" if backend.startswith("llama-") else "muse-spark-reference",
                    "tokenizer": str(tokenizer), "cwd": str(cat.src), "backend": backend,
                    "lib_dirs": [str(exe.parent)], "parallel": 1, "engine_ready_s": 900}
             base = folder / "model.json"
@@ -2044,17 +2043,18 @@ class Runner:
         if s.family == "muse":
             from strata_control.muse import TILE_BYTES
             bundle, exe = self._muse_bundle(), self._muse_engine()
-            backend, gpu = self._muse_backend()
-            args = ["--serve", "--model", str(bundle.paths[0]), "--max-context", str(bundle.context), "--backend", backend]
-            if backend == "cuda":
-                args += ["--gpu", str(gpu)]
-            placement = bundle.plan()
-            placement["device_buffers_bytes"] = 2 * TILE_BYTES + 256 if backend == "cuda" else 0
-            placement["lines"].append("CUDA uses decoded matvec tiles on one card (8 MiB + 256 bytes of device buffers, plus CUDA/cuBLAS overhead); attention, routing and KV stay on the CPU."
-                                      if backend == "cuda" else "CPU computes the reference graph; no graphics card is used.")
+            backend, backend_args = self._muse_backend()
+            args = ["--serve", "--model", str(bundle.paths[0]), "--max-context", str(bundle.context), *backend_args]
+            cache_mib = int(backend_args[backend_args.index("--moe-cache-mib") + 1]) if "--moe-cache-mib" in backend_args else 0
+            placement = bundle.plan(backend, cache_mib)
+            if not backend.startswith("llama-"):
+                placement["device_buffers_bytes"] = 2 * TILE_BYTES + 256 if backend == "cuda" else 0
+                placement["lines"].append("CUDA uses decoded matvec tiles on one card (8 MiB + 256 bytes of device buffers, plus CUDA/cuBLAS overhead); attention, routing and KV stay on the CPU."
+                                          if backend == "cuda" else "CPU computes the reference graph; no graphics card is used.")
             return {"profile": self.profile, "settings": s.to_dict(with_key=False), "warnings": [n.line() for n in S.check_access(s)],
                     "flags": S.flags_text(s), "steps": list(STAGES), "drafting": "", "speed": "",
-                    "model": {"title": "Muse Spark experimental reference", "family": "muse", "model": "local",
+                    "model": {"title": "Muse Spark experimental quantized" if backend.startswith("llama-") else "Muse Spark experimental reference",
+                              "family": "muse", "model": "local",
                               "model_gb": bundle.mapped_bytes / 1e9, "own_files": True, "folder": str(bundle.paths[0])},
                     "engine": {"exe": str(exe), "args": args, "backend": backend},
                     "download": self.download_plan(), "placement": placement}
@@ -2081,14 +2081,16 @@ class Runner:
         return out
 
     def _muse_backend(self):
+        from strata_control import muse
         backend = os.environ.get("STRATA_MUSE_BACKEND", "cuda" if self.s.gpus else "cpu").strip().lower()
-        if backend not in {"cpu", "cuda"}:
-            raise LaunchError("Muse supports CPU or CUDA only; STRATA_MUSE_BACKEND must be cpu or cuda.", "", 2)
-        if self.s.gpu_roles or (self.s.gpus and (len(self.s.gpus) != 1 or self.s.gpus[0] < 0)):
-            raise LaunchError("Muse reference supports one CUDA card; GPU roles and multi-GPU are unavailable.", "Use --gpu N for one card.", 2)
-        if backend == "cpu" and self.s.gpus:
-            raise LaunchError("--gpu cannot be used with STRATA_MUSE_BACKEND=cpu.", "Choose cuda or leave out --gpu.", 2)
-        return backend, (self.s.gpus or [0])[0]
+        if self.s.gpu_roles:
+            raise LaunchError("Muse does not support Qwen GPU roles.", "Use --gpu with llama-cuda for a layer split.", 2)
+        try:
+            args = muse.backend_args(backend, self.s.gpus, os.environ.get("STRATA_MUSE_MOE_CACHE_MIB"),
+                                     os.environ.get("STRATA_MUSE_THREADS"))
+        except muse.MuseError as exc:
+            raise LaunchError(str(exc), "", 2) from None
+        return backend, args
 
     def _muse_bundle(self):
         from strata_control import muse
@@ -2099,9 +2101,9 @@ class Runner:
             raise LaunchError("Muse reference is text-only, one request at a time, with FP32 KV; vision, parallel slots and --kv are unsupported.", "", 2)
         if s.tune != "skip" or s.speed or s.mtp not in (None, "off") or s.drafting not in (None, "off") or s.extra:
             raise LaunchError("Muse reference does not support tuning, speed modes, drafting or advanced engine overrides.", "Leave those options out.", 2)
-        self._muse_backend()
+        backend, _ = self._muse_backend()
         try:
-            return muse.inspect_model(s.model_path, s.context)
+            return muse.inspect_model(s.model_path, s.context, backend=backend)
         except (OSError, ValueError) as exc:
             raise LaunchError(str(exc), "", 2) from None
 
@@ -2111,7 +2113,7 @@ class Runner:
         if self.s.data_dir:
             roots.append(Path(self.s.data_dir))
         try:
-            return muse.find_engine(roots)
+            return muse.find_engine(roots, self._muse_backend()[0])
         except muse.MuseError as exc:
             raise LaunchError(str(exc), "", 5) from None
 

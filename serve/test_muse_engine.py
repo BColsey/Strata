@@ -26,8 +26,12 @@ class ResidentChat(unittest.TestCase):
         bundle = muse.inspect_model(model, 1024)
         directory = muse.prepare_tokenizer(bundle, Path(self.tmp.name) / "tokenizer")
         tok = Tokenizer.from_gguf(model)
-        self.engine = StrataEngine(os.environ["STRATA_MUSE_TEST_EXE"],
-                                  ["--model", str(model), "--max-context", "1024", "--backend", "cpu"])
+        args = ["--model", str(model), "--max-context", "1024", "--backend",
+                os.environ.get("STRATA_MUSE_TEST_BACKEND", "cpu")]
+        for env, flag in (("STRATA_MUSE_TEST_GPU", "--gpu"), ("STRATA_MUSE_TEST_CACHE_MIB", "--moe-cache-mib")):
+            if os.environ.get(env):
+                args += [flag, os.environ[env]]
+        self.engine = StrataEngine(os.environ["STRATA_MUSE_TEST_EXE"], args)
         self.addCleanup(self.engine.close)
         self.addCleanup(use_family, None)
         self.svc = Service(self.engine, tok, MuseTemplate(directory / "chat_template.jinja", tok), model_name="synthetic-muse")

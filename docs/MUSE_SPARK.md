@@ -19,6 +19,7 @@ fixture cannot establish them.
 
 - [Build and check a synthetic model](#build-and-check-a-synthetic-model)
 - [Launch text chat from local files](#launch-text-chat-from-local-files)
+- [Opt-in quantized llama backend (Linux CPU/CUDA, multi-GPU)](MUSE_LLAMA.md)
 - [Package a local engine](#package-a-local-engine)
 - [Memory limits](#memory-limits)
 
@@ -76,7 +77,8 @@ python -m tools.muse.compare \
 Select the architecture and device for your hardware. CUDA accelerates tiled
 matrix-vector products through cuBLAS; attention, routing, normalization and row
 dequantization remain on the CPU. This is not an optimized GPU inference engine.
-No Muse HIP, SYCL or multi-GPU path is provided.
+This reference has no Muse HIP, SYCL or multi-GPU execution path. The separate
+[quantized llama adapter](MUSE_LLAMA.md) supports an opt-in CUDA layer split.
 With a HIP engine build, Muse uses its CPU path; the gfx906 compatibility mode
 does not enable the NVIDIA adapter. Build Muse separately from the SYCL project.
 

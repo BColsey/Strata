@@ -106,6 +106,65 @@ class MuseLaunch(unittest.TestCase):
         self.assertNotIn("layer_split", cfg)
         self.assertEqual(cfg["backend"], "cuda")
 
+    def test_llama_cuda_plan_and_config_keep_three_cards_and_explicit_cache(self):
+        before = set(self.home.base.rglob("*"))
+        with mock.patch.dict(os.environ, {"STRATA_MUSE_BACKEND": "llama-cuda",
+                                          "STRATA_MUSE_MOE_CACHE_MIB": "10240", "STRATA_MUSE_THREADS": "12"}):
+            runner = self.runner(context=16, gpus=[0, 2, 1])
+            plan = runner.plan()
+            self.assertEqual(set(self.home.base.rglob("*")), before)
+            flags = ["--backend", "llama-cuda", "--gpu", "0,2,1", "--moe-cache-mib", "10240", "--threads", "12"]
+            self.assertEqual(plan["engine"]["args"][-len(flags):], flags)
+            self.assertEqual(plan["placement"]["expert_cache_bytes"], 10240 * 1024**2)
+            self.assertIsNone(plan["placement"]["host_budget_bytes"])
+            self.assertIsNone(plan["placement"]["device_buffers_bytes"])
+            code, out, err = run_cli(["launch", "--family", "muse", "--model-path", str(self.model),
+                                     "--context", "16", "--gpu", "0,2,1", "--plan", "--output", "json"])
+            self.assertEqual(code, 0, err + out)
+            self.assertEqual(json.loads(out)["plan"]["engine"]["args"][-len(flags):], flags)
+            with mock.patch.object(runner, "_spawn", side_effect=AssertionError("preparation must not spawn")):
+                cfg = json.loads(Path(runner.run(start=False).config).read_text())
+        self.assertEqual(cfg["args"][-len(flags):], flags)
+        self.assertEqual(muse.validate_config(cfg).context, 16)
+        self.assertNotIn("gpu", cfg)
+        self.assertNotIn("layer_split", cfg)
+
+    def test_llama_options_are_not_silently_ignored_by_reference_or_cpu(self):
+        cases = [({"STRATA_MUSE_BACKEND": "cpu", "STRATA_MUSE_THREADS": "12"}, None),
+                 ({"STRATA_MUSE_BACKEND": "cuda", "STRATA_MUSE_MOE_CACHE_MIB": "12"}, [0]),
+                 ({"STRATA_MUSE_BACKEND": "llama-cpu", "STRATA_MUSE_MOE_CACHE_MIB": "0"}, None),
+                 ({"STRATA_MUSE_BACKEND": "llama-cpu"}, [0]),
+                 ({"STRATA_MUSE_BACKEND": "llama-cuda"}, [0, 0]),
+                 ({"STRATA_MUSE_BACKEND": "llama-cuda", "STRATA_MUSE_MOE_CACHE_MIB": "-1"}, [0]),
+                 ({"STRATA_MUSE_BACKEND": "llama-cuda", "STRATA_MUSE_THREADS": "0"}, [0])]
+        for env, gpus in cases:
+            with self.subTest(env=env, gpus=gpus), mock.patch.dict(os.environ, env), self.assertRaises(LaunchError):
+                self.runner(gpus=gpus).plan()
+        cfg = json.loads(self.runner(context=16).ensure_model().read_text())
+        for flag in ("--threads", "--moe-cache-mib"):
+            with self.subTest(flag=flag), self.assertRaises(muse.MuseError):
+                muse.validate_config({**cfg, "args": cfg["args"] + [flag, "12"]})
+
+    def test_llama_does_not_claim_the_reference_memory_budget(self):
+        write_model(self.model, {muse.PREFIX + "context_length": 20000000})
+        with self.assertRaises(muse.MuseError):
+            muse.inspect_model(self.model, 20000000)
+        bundle = muse.inspect_model(self.model, 20000000, backend="llama-cpu")
+        self.assertIsNone(bundle.plan("llama-cpu")["host_live_bytes"])
+        with self.assertRaisesRegex(muse.MuseError, "trained context"):
+            muse.inspect_model(self.model, 20000001, backend="llama-cpu")
+
+    def test_llama_discovery_does_not_pick_the_reference_executable(self):
+        folder = self.cat.root / "engine-muse"
+        folder.mkdir(parents=True)
+        reference = folder / "strata-muse"
+        adapter = folder / "strata-muse-llama"
+        for exe in (reference, adapter):
+            exe.write_bytes(b"local executable")
+            exe.chmod(0o755)
+        with mock.patch.dict(os.environ, {"STRATA_MUSE_EXE": "", "STRATA_MUSE_BACKEND": "llama-cpu"}):
+            self.assertEqual(self.runner().plan()["engine"]["exe"], str(adapter))
+
     def test_local_package_entrypoint_is_found_without_environment_override(self):
         folder = self.cat.root / "engine-muse" / "0.1-linux-x86_64-cpu"
         folder.mkdir(parents=True)

@@ -28,15 +28,21 @@ from tools.muse.reference import forward, load_f32
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--binary", required=True)
+parser.add_argument("--backend")
+parser.add_argument("--gpu")
+parser.add_argument("--moe-cache-mib")
 args, remaining = parser.parse_known_args()
 BINARY = str(Path(args.binary).resolve())
+BACKEND_ARGS = [part for flag, value in (("--backend", args.backend), ("--gpu", args.gpu),
+                                       ("--moe-cache-mib", args.moe_cache_mib))
+                if value is not None for part in (flag, value)]
 
 
 class Peer:
     def __init__(self, model):
         self.stderr = tempfile.TemporaryFile()
         self.proc = subprocess.Popen(
-            [BINARY, "--model", str(model), "--max-context", "2048", "--serve"],
+            [BINARY, "--model", str(model), "--max-context", "2048", "--serve", *BACKEND_ARGS],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr,
             text=True, encoding="utf-8", bufsize=1,
         )
@@ -159,7 +165,7 @@ class Protocol(unittest.TestCase):
         expected = self.oracle(TOKENS, 4)
         output = self.directory / "reference-cli.json"
         subprocess.run([BINARY, "--model", str(self.model), "--tokens", ",".join(map(str, TOKENS)),
-                        "--ctx", "32", "--steps", "4", "--logits-file", str(output)],
+                        "--ctx", "32", "--steps", "4", "--logits-file", str(output), *BACKEND_ARGS],
                        check=True, capture_output=True, text=True, timeout=20)
         self.assertEqual(json.loads(output.read_text())["generated_tokens"], expected)
         with Peer(self.model) as peer:

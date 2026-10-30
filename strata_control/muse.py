@@ -57,6 +57,39 @@ class _Header(GGUFFile):
         return super()._count(fh, count, min_bytes, what)
 
 
+def backend_args(backend, gpus=None, cache_mib=None, threads=None):
+    """Validate the same backend options for launch and saved server configs."""
+    if backend not in {"cpu", "cuda", "llama-cpu", "llama-cuda"}:
+        raise MuseError("Muse supports CPU or CUDA: choose cpu, cuda, llama-cpu or llama-cuda")
+    quantized = backend.startswith("llama-")
+    cuda = backend in {"cuda", "llama-cuda"}
+    if gpus and not cuda:
+        raise MuseError("Muse --gpu requires a CUDA backend")
+    if gpus:
+        for gpu in gpus:
+            _integer(gpu, "GPU index", zero=True)
+        if len(gpus) > (64 if quantized else 1) or len(set(gpus)) != len(gpus):
+            raise MuseError("Muse GPU list must contain distinct devices; the reference supports one CUDA card")
+    if cache_mib is not None and backend != "llama-cuda":
+        raise MuseError("Muse expert cache requires llama-cuda")
+    if threads is not None and not quantized:
+        raise MuseError("Muse --threads requires the llama backend")
+    args = ["--backend", backend]
+    if cuda:
+        args += ["--gpu", ",".join(str(gpu) for gpu in (gpus or [0]))]
+    for flag, value in (("--moe-cache-mib", 6144 if backend == "llama-cuda" and cache_mib is None else cache_mib),
+                        ("--threads", threads)):
+        if value is None:
+            continue
+        if not re.fullmatch(r"[0-9]+", str(value)):
+            raise MuseError(f"Muse {flag} must be an integer")
+        value = _integer(int(value), flag, zero=flag == "--moe-cache-mib")
+        if flag == "--threads" and value > 1024:
+            raise MuseError("Muse threads must be in 1..1024")
+        args += [flag, str(value)]
+    return args
+
+
 def _integer(value, name, zero=False):
     if type(value) is not int or not (0 if zero else 1) <= value <= 2 ** 31 - 1:
         raise MuseError("Muse requires valid integer metadata: " + name)
@@ -99,7 +132,17 @@ class Bundle:
     def protocol_bytes(self):
         return COMMAND_BYTES + self.context * 16
 
-    def plan(self):
+    def plan(self, backend="cpu", cache_mib=0):
+        if backend.startswith("llama-"):
+            return {"context": self.context, "trained_context": self.geometry["train_context"],
+                    "mapped_bytes": self.mapped_bytes, "shards": len(self.paths),
+                    "protocol_bytes": self.protocol_bytes, "expert_cache_bytes": cache_mib * 1024**2,
+                    "host_live_bytes": None, "host_budget_bytes": None, "device_buffers_bytes": None,
+                    "lines": [f"Muse quantized llama backend: {self.mapped_bytes / 1e9:.3f} GB file-backed weights.",
+                              f"Expert GPU cache budget: {cache_mib} MiB total, split equally across selected cards; dense weights, KV and runtime buffers are additional."
+                              if backend == "llama-cuda" else "CPU executes the quantized graph; no GPU is used.",
+                              "No memory-fit or speed guarantee. KV context can be padded by the backend; mapped weights and OS page cache are not bounded by the reference's 1 GiB limit."],
+                    "warnings": []}
         return {"context": self.context, "trained_context": self.geometry["train_context"],
                 "kv_bytes": self.kv_bytes, "scratch_bytes": self.scratch_bytes,
                 "protocol_bytes": self.protocol_bytes,
@@ -111,8 +154,9 @@ class Bundle:
                 "warnings": []}
 
 
-def inspect_model(path, context=None):
+def inspect_model(path, context=None, *, backend="cpu"):
     """Check headers and payload bounds without loading weights or creating files."""
+    backend_args(backend)
     paths = _paths(path)
     try:
         headers = [_Header(p) for p in paths]
@@ -225,8 +269,10 @@ def inspect_model(path, context=None):
         raise MuseError(f"Muse context {ctx} exceeds the GGUF trained context {g['train_context']}; RoPE scaling is unsupported")
     kv_bytes = sum(min(ctx, g["window"]) if local else ctx for local in pattern) * kv * 2 * 4
     scratch = TILE_BYTES + (width * 64 + ctx) * 4
-    if kv_bytes + scratch + COMMAND_BYTES + ctx * 16 > HOST_BUDGET:
+    if backend in {"cpu", "cuda"} and kv_bytes + scratch + COMMAND_BYTES + ctx * 16 > HOST_BUDGET:
         raise MuseError("Muse KV, scratch and protocol buffers exceed the 1 GiB resident budget; choose a smaller --context")
+    if COMMAND_BYTES + ctx * 16 > HOST_BUDGET:
+        raise MuseError("Muse protocol buffers exceed the 1 GiB limit; choose a smaller --context")
     bundle = Bundle(paths, md, g, ctx, kv_bytes, scratch, sum(p.stat().st_size for p in paths))
     _tokenizer(bundle)
     return bundle
@@ -275,13 +321,14 @@ def prepare_tokenizer(bundle, out_dir):
     return out
 
 
-def find_engine(roots):
+def find_engine(roots, backend="cpu"):
+    entrypoint = "strata-muse-llama" if backend.startswith("llama-") else "strata-muse"
     own = os.environ.get("STRATA_MUSE_EXE", "").strip()
     choices = [Path(own).expanduser()] if own else []
     if not own:
         for root in roots:
             folder = Path(root) / "engine-muse"
-            for name in ("strata-muse", "strata-muse.exe"):
+            for name in (entrypoint, entrypoint + ".exe"):
                 choices.append(folder / name)
                 choices.extend(sorted(folder.glob("*/" + name), reverse=True))
     for path in choices:
@@ -298,15 +345,15 @@ def find_engine(roots):
                 except ec.ComponentProblem as exc:
                     raise MuseError("Local Muse engine package failed its integrity check: " + str(exc)) from None
             return path.absolute()
-    raise MuseError("Muse needs a local strata-muse executable: set STRATA_MUSE_EXE or put it in engine-muse/. No engine is downloaded")
+    raise MuseError(f"Muse needs a local {entrypoint} executable: set STRATA_MUSE_EXE or put it in engine-muse/. No engine is downloaded")
 
 
 def validate_config(cfg):
     """Validate a local Muse server config before a process is started."""
     args = cfg.get("args") or []
-    allowed = {"--model", "--max-context", "--backend", "--gpu"}
+    allowed = {"--model", "--max-context", "--backend", "--gpu", "--moe-cache-mib", "--threads"}
     if not isinstance(args, list) or any(not isinstance(a, str) for a in args) or len(args) % 2 or any(flag not in allowed for flag in args[::2]) or len(set(args[::2])) != len(args[::2]):
-        raise MuseError("Muse config supports only --model, --max-context, --backend and --gpu, each once")
+        raise MuseError("Muse config supports only model, context, backend, GPU, expert cache and threads, each once")
     if cfg.get("gpu") is not None or cfg.get("parallel", 1) not in (None, 1) or cfg.get("drafting") not in (None, "off") or any(cfg.get(k) for k in
             ("vision", "replicas", "layer_split", "gpu_roles", "gpu_order", "gpu", "gpu_none",
              "thinking_budget_tokens", "reasoning_budget_tokens", "reasoning_effort_at_end", "effort_position",
@@ -320,17 +367,14 @@ def validate_config(cfg):
         if i + 1 >= len(args):
             raise MuseError("Muse engine option needs a value: " + flag)
         return args[i + 1]
-    if arg("--backend", "cpu") not in {"cpu", "cuda"}:
-        raise MuseError("Muse supports CPU or CUDA only")
-    if cfg.get("backend", arg("--backend", "cpu")) != arg("--backend", "cpu"):
+    backend = arg("--backend", "cpu")
+    if cfg.get("backend", backend) != backend:
         raise MuseError("Muse config backend must match its engine arguments")
-    if arg("--gpu") is not None:
-        try:
-            _integer(int(arg("--gpu")), "GPU index", zero=True)
-        except (ValueError, TypeError):
-            raise MuseError("Muse GPU index must be a nonnegative integer") from None
-        if arg("--backend", "cpu") != "cuda":
-            raise MuseError("Muse --gpu requires the CUDA backend")
+    try:
+        gpus = [int(i) for i in arg("--gpu").split(",")] if arg("--gpu") is not None else None
+    except (ValueError, TypeError):
+        raise MuseError("Muse GPU indices must be nonnegative integers") from None
+    backend_args(backend, gpus, arg("--moe-cache-mib"), arg("--threads"))
     model = arg("--model")
     if not model:
         raise MuseError("Muse config must name --model GGUF")
@@ -338,7 +382,7 @@ def validate_config(cfg):
         context = int(arg("--max-context", 128))
     except (ValueError, TypeError):
         raise MuseError("Muse config context must be an integer") from None
-    bundle = inspect_model(model, context)
+    bundle = inspect_model(model, context, backend=backend)
     out = Path(cfg.get("tokenizer") or "")
     expected = {"vocab.json", "merges.txt", "token_type.json", "tokenizer.json", "chat_template.jinja"}
     if not cfg.get("tokenizer") or any(not (out / name).is_file() for name in expected):

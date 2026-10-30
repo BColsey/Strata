@@ -178,7 +178,7 @@ double milliseconds(Clock::time_point from, Clock::time_point to) {
     return std::chrono::duration<double, std::milli>(to - from).count();
 }
 class Resident {
-    Model model;
+    Execution& model;
     const size_t context;
     const std::string backend;
     std::mutex state_mutex, output_mutex;
@@ -274,9 +274,11 @@ class Resident {
         if (worker.joinable()) worker.join();
     }
 public:
-    explicit Resident(const Options& options)
-        : model(options.model, options.context, options.backend, int(options.gpu)), context(options.context), backend(options.backend) {
-        resident_memory_bytes(model.geometry(), context);
+    Resident(const Options& options, Execution& execution)
+        : model(execution), context(options.context), backend(options.backend) {
+        if (backend == "cpu" || backend == "cuda") resident_memory_bytes(model.geometry(), context);
+        else if (checked_add(resident_line_bytes, checked_mul(context, size_t(16))) > host_budget_bytes)
+            bad("resident protocol buffers exceed 1 GiB; reduce context");
     }
     ~Resident() { stop(); }
     void run() {
@@ -284,7 +286,8 @@ public:
         // allowance accounted by resident_memory_bytes().
         auto input = std::make_unique<char[]>(resident_line_bytes);
         worker = std::thread([&] { work(); });
-        line("INFO arch=muse-spark backend=" + backend + " engine=muse-reference batch_slots=0 logprobs=0 prefix_cache=0");
+        const std::string engine = backend == "cpu" || backend == "cuda" ? "muse-reference" : "muse-llama";
+        line("INFO arch=muse-spark backend=" + backend + " engine=" + engine + " batch_slots=0 logprobs=0 prefix_cache=0");
         line("READY " + std::to_string(context) + " stop");
         size_t input_size = 0;
         bool oversized = false;
@@ -321,9 +324,9 @@ public:
     }
 };
 } // namespace
-void serve(const Options& options) {
+void serve(const Options& options, Execution& model) {
     if (!options.context || options.model.empty() || options.gpu > uint32_t(std::numeric_limits<int>::max()))
         bad("invalid resident execution arguments/context");
-    Resident(options).run();
+    Resident(options, model).run();
 }
 } // namespace strata::muse

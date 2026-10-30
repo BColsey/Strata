@@ -25,7 +25,7 @@ def generate(output_dir: Path):
     ]
     md = metadata()
     md.update({"general.name": "synthetic Muse chat wiring fixture",
-               "muse-spark.context_length": 1024,
+               "muse-spark.context_length": 1024, "muse-spark.vocab_size": len(tokens),
                "tokenizer.ggml.model": "gpt2", "tokenizer.ggml.pre": "gpt-4o",
                "tokenizer.ggml.tokens": tokens, "tokenizer.ggml.merges": [],
                "tokenizer.ggml.token_type": [1] * 256 + [4] + [3] * 6,
