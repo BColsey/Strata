@@ -1,0 +1,317 @@
+=== build-cpu.log (CTest portion only; target compilation succeeded before this portion) ===
+Internal ctest changing into directory: /out/build-cpu
+Test project /out/build-cpu
+    Start 1: muse_llama_protocol
+1/2 Test #1: muse_llama_protocol ..............   Passed    1.11 sec
+    Start 2: muse_llama_logits
+2/2 Test #2: muse_llama_logits ................   Passed    0.21 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   1.33 sec
+
+=== build-cuda.log (CTest portion only; target compilation succeeded before this portion) ===
+Internal ctest changing into directory: /out/build-cuda
+Test project /out/build-cuda
+    Start 1: muse_llama_protocol
+1/2 Test #1: muse_llama_protocol ..............   Passed    2.89 sec
+    Start 2: muse_llama_logits
+2/2 Test #2: muse_llama_logits ................   Passed    1.32 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   4.21 sec
+
+=== gpu-synthetic.log (complete log) ===
+test_eos_and_eot_are_protocol_stop (__main__.Protocol.test_eos_and_eot_are_protocol_stop) ... ok
+test_error_line_cannot_inject_protocol_bytes (__main__.Protocol.test_error_line_cannot_inject_protocol_bytes) ... ok
+test_greedy_oracle_reference_cli_and_request_reset (__main__.Protocol.test_greedy_oracle_reference_cli_and_request_reset) ... ok
+test_malformed_and_unsupported_commands_recover (__main__.Protocol.test_malformed_and_unsupported_commands_recover) ... ok
+test_oversized_line_is_discarded_and_recovers (__main__.Protocol.test_oversized_line_is_discarded_and_recovers) ... ok
+test_quit_and_eof_cancel_active_request_and_exit (__main__.Protocol.test_quit_and_eof_cancel_active_request_and_exit) ... ok
+test_sampling_penalties_and_history_window (__main__.Protocol.test_sampling_penalties_and_history_window) ... ok
+test_seed_reproducibility_and_sampling_filters (__main__.Protocol.test_seed_reproducibility_and_sampling_filters) ... ok
+test_stop_during_decode_and_no_queued_generation (__main__.Protocol.test_stop_during_decode_and_no_queued_generation) ... ok
+test_stop_during_prefill_and_next_request (__main__.Protocol.test_stop_during_prefill_and_next_request) ... ok
+test_zero_generation_reads_prompt (__main__.Protocol.test_zero_generation_reads_prompt) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 14.096s
+
+OK
+test_chat_replays_without_qwen_cache_or_markers (serve.test_muse_engine.ResidentChat.test_chat_replays_without_qwen_cache_or_markers) ... [strata] done: 1 tokens in 0 s (no speed) (length, cancel=False)
+[strata] done: 1 tokens in 0 s (no speed) (length, cancel=False)
+ok
+test_tools_and_logprobs_fail_before_engine_generation (serve.test_muse_engine.ResidentChat.test_tools_and_logprobs_fail_before_engine_generation) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.854s
+
+OK
+
+=== reference-check.log (complete log) ===
+-- Strata: CUDA enabled, arch 75;86
+-- strata: pack/full/experts.bin absent - the expert arena load test is NOT registered
+-- ccache found, compilation results will be cached. Disable with GGML_CCACHE=OFF.
+-- CMAKE_SYSTEM_PROCESSOR: x86_64
+-- GGML_SYSTEM_ARCH: x86
+-- Including CPU backend
+-- x86 detected
+-- Adding CPU backend variant ggml-cpu: -march=native
+-- ggml version: 0.24.0
+-- ggml commit:  unknown
+-- trellis MMQ (Gyro prompts): overlay on the pinned ggml-cuda in /out/build-reference/ggml-tq-overlay
+-- Configuring done (0.7s)
+-- Generating done (0.1s)
+-- Build files have been written to: /out/build-reference
+[1/4] Building CXX object src/muse/CMakeFiles/strata_muse.dir/model.cpp.o
+[2/4] Linking CXX static library src/muse/libstrata_muse.a
+[3/4] Linking CXX executable src/muse/strata-muse
+[4/4] Linking CXX executable src/muse/muse_model_test
+Internal ctest changing into directory: /out/build-reference
+Test project /out/build-reference
+    Start 200: muse_model_test
+1/2 Test #200: muse_model_test ..................   Passed    0.19 sec
+    Start 201: muse_protocol_test
+2/2 Test #201: muse_protocol_test ...............   Passed    2.12 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   2.31 sec
+wrote /out/fixture/model.gguf and reference.json (7 x 64 logits)
+Muse Spark experimental bounded-streaming reference; backend=cpu device=host
+Muse Spark experimental bounded-streaming reference; backend=cpu device=host
+muse_model_test: CUDA F32 forced logits, four greedy steps, EOS/EOT and zero steps passed
+muse_model_test: CUDA mixed F16/Q8_0 forced logits, four greedy steps, EOS/EOT and zero steps passed
+muse_model_test: CUDA IQ1_S/Q6_K/Q8_0 logits match CPU decoded F32
+muse_model_test: CUDA F32 forced logits, four greedy steps, EOS/EOT and zero steps passed
+muse_model_test: CUDA mixed F16/Q8_0 forced logits, four greedy steps, EOS/EOT and zero steps passed
+muse_model_test: CUDA IQ1_S/Q6_K/Q8_0 logits match CPU decoded F32
+muse_model_test: CUDA F32 forced logits, four greedy steps, EOS/EOT and zero steps passed
+muse_model_test: CUDA mixed F16/Q8_0 forced logits, four greedy steps, EOS/EOT and zero steps passed
+muse_model_test: CUDA IQ1_S/Q6_K/Q8_0 logits match CPU decoded F32
+test_chat_replays_without_qwen_cache_or_markers (serve.test_muse_engine.ResidentChat.test_chat_replays_without_qwen_cache_or_markers) ... [strata] done: 1 tokens in 0 s (no speed) (length, cancel=False)
+[strata] done: 1 tokens in 0 s (no speed) (length, cancel=False)
+ok
+test_tools_and_logprobs_fail_before_engine_generation (serve.test_muse_engine.ResidentChat.test_tools_and_logprobs_fail_before_engine_generation) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.244s
+
+OK
+test_chat_replays_without_qwen_cache_or_markers (serve.test_muse_engine.ResidentChat.test_chat_replays_without_qwen_cache_or_markers) ... [strata] done: 1 tokens in 0 s (no speed) (length, cancel=False)
+[strata] done: 1 tokens in 0 s (no speed) (length, cancel=False)
+ok
+test_tools_and_logprobs_fail_before_engine_generation (serve.test_muse_engine.ResidentChat.test_tools_and_logprobs_fail_before_engine_generation) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.115s
+
+OK
+
+=== hip-tests.log (complete log) ===
+Internal ctest changing into directory: /out/build
+Test project /out/build
+    Start 190: muse_model_test
+1/2 Test #190: muse_model_test ..................   Passed    0.11 sec
+    Start 191: muse_protocol_test
+2/2 Test #191: muse_protocol_test ...............   Passed    1.03 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   1.15 sec
+
+=== http-and-unit.log (complete log) ===
+{"status": "completed", "responses": [{"path": "/v1/chat/completions", "stream": false, "status": 200, "expected_synthetic_text": true}, {"path": "/v1/messages", "stream": false, "status": 200, "expected_synthetic_text": true}, {"path": "/v1/responses", "stream": false, "status": 200, "expected_synthetic_text": true}, {"path": "/v1/chat/completions", "stream": true, "status": 200, "expected_synthetic_text": true}, {"path": "/v1/messages", "stream": true, "status": 200, "expected_synthetic_text": true}, {"path": "/v1/responses", "stream": true, "status": 200, "expected_synthetic_text": true}], "launch_exit": 0, "stop_exit": 0}
+test_gfx906_keeps_muse_cpu_only (test_build.BuildPolicyTests.test_gfx906_keeps_muse_cpu_only) ... ok
+test_missing_row_converter_dependency_has_clear_error (test_build.BuildPolicyTests.test_missing_row_converter_dependency_has_clear_error) ... ok
+test_sycl_muse_is_rejected_before_entering_sycl (test_build.BuildPolicyTests.test_sycl_muse_is_rejected_before_entering_sycl) ... ok
+test_windows_manifest_is_attached_to_both_executables (test_build.BuildPolicyTests.test_windows_manifest_is_attached_to_both_executables) ... ok
+test_full_logits_and_greedy_tokens_match_independent_oracle (test_llama_backend.LlamaBackend.test_full_logits_and_greedy_tokens_match_independent_oracle) ... ok
+test_invalid_options_do_not_fall_back_to_reference_or_other_devices (test_llama_backend.LlamaBackend.test_invalid_options_do_not_fall_back_to_reference_or_other_devices) ... ok
+test_output_cannot_overwrite_model_or_hardlink (test_llama_backend.LlamaBackend.test_output_cannot_overwrite_model_or_hardlink) ... ok
+test_wrong_architecture_is_refused_before_model_execution (test_llama_backend.LlamaBackend.test_wrong_architecture_is_refused_before_model_execution) ... ok
+test_comparison_cli_returns_nonzero_for_all_failure_classes (test_oracle.ComparisonTests.test_comparison_cli_returns_nonzero_for_all_failure_classes) ... ok
+test_explicit_tolerance_and_strict_shapes (test_oracle.ComparisonTests.test_explicit_tolerance_and_strict_shapes) ... ok
+test_deterministic_serialization_and_readback (test_oracle.FixtureTests.test_deterministic_serialization_and_readback) ... ok
+test_fixture_cli (test_oracle.FixtureTests.test_fixture_cli) ... ok
+test_reject_truncated_and_non_f32_tensors (test_oracle.FixtureTests.test_reject_truncated_and_non_f32_tensors) ... ok
+test_causal_prefix_and_local_boundary (test_oracle.GraphTests.test_causal_prefix_and_local_boundary) ... ok
+test_distinct_postnorm_epsilon_is_observable (test_oracle.GraphTests.test_distinct_postnorm_epsilon_is_observable) ... ok
+test_every_graph_stage_is_observable (test_oracle.GraphTests.test_every_graph_stage_is_observable) ... ok
+test_fixture_exercises_all_experts_and_bias_changes_selection (test_oracle.GraphTests.test_fixture_exercises_all_experts_and_bias_changes_selection) ... ok
+test_gguf_rope_matches_converter_permutation (test_oracle.GraphTests.test_gguf_rope_matches_converter_permutation) ... ok
+test_malformed_metadata_and_tensors (test_oracle.GraphTests.test_malformed_metadata_and_tensors) ... ok
+test_normalization_order_and_rope_hand_values (test_oracle.GraphTests.test_normalization_order_and_rope_hand_values) ... ok
+test_router_bias_selection_only_and_epsilon (test_oracle.GraphTests.test_router_bias_selection_only_and_epsilon) ... ok
+test_router_misuse_changes_full_logits (test_oracle.GraphTests.test_router_misuse_changes_full_logits) ... ok
+test_alias_round_trip_and_special_ids (test_tokenizer.MuseTokenizer.test_alias_round_trip_and_special_ids) ... ok
+test_gpt4o_splits_case_digits_contractions_and_unicode (test_tokenizer.MuseTokenizer.test_gpt4o_splits_case_digits_contractions_and_unicode) ... ok
+
+----------------------------------------------------------------------
+Ran 24 tests in 3.236s
+
+OK
+
+=== precommit-launch.log (complete log) ===
+........................................................................ [ 37%]
+............................................s........................... [ 75%]
+..............................................                                                             [100%]
+=============================== warnings summary ===============================
+conftest.py:1
+  /src/conftest.py:1: DeprecationWarning: invalid escape sequence '\S'
+    """pytest: setup.py's data-folder migration (#198) saves the data folder it settled on in the user's settings file
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+189 passed, 1 skipped, 1 warning, 326 subtests passed in 23.65s
+
+=== terminal-first-failures.log (complete log) ===
+...............s........................................................ [  3%]
+......................................s..............F.................. [  7%]
+...................................................................... [ 10%]
+.......s................................................................ [ 14%]
+........................................................................ [ 17%]
+........................F
+=================================== FAILURES ===================================
+_ BundleImports.test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle _
+
+self = <test_bundle_imports.BundleImports testMethod=test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle>
+
+    def test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle(self):
+        modules = sorted(set(pt.setup_tool_imports(self.root)) | set(pt.INSTALLER_TOOLS))
+        code = ("import sys, os, importlib\n"
+                f"sys.path[:0] = [{str(self.root)!r}, {str(self.root / 'tools')!r}]\n"
+                "import setup\n"
+                f"for name in {modules!r}:\n"
+                "    module = importlib.import_module(name)\n"
+                f"    assert os.path.samefile(os.path.dirname(module.__file__), {str(self.root / 'tools')!r}), (name, module.__file__)\n"
+                "print('imports ok')\n")
+        env = {**os.environ, "STRATA_CONTROL_INSTALL": "1", "PYTHONNOUSERSITE": "1"}
+        for key in ("PYTHONPATH", "PYTHONHOME"):
+            env.pop(key, None)
+        done = subprocess.run([sys.executable, "-I", "-c", code], cwd=str(self.root.parent), env=env,
+                              capture_output=True, text=True, timeout=120)
+>       self.assertEqual(done.returncode, 0, (done.stdout or "") + (done.stderr or "")[-1500:])
+E       AssertionError: 1 != 0 : llama.cpp's gguf-py was not found. Set STRATA_GGUF_PY to the gguf-py folder of any llama.cpp checkout (<llama.cpp>/gguf-py), or run setup.py once (it downloads llama.cpp into third_party/ of the install folder; in the desktop app or the Terminal package that folder is STRATA_INSTALL_DIR, which this tool also looks in)
+
+tests/terminal/test_bundle_imports.py:88: AssertionError
+______ HipPackageLibraryPath.test_rocm_bin_comes_after_the_package_folder ______
+
+self = <test_dsv41_engine.HipPackageLibraryPath testMethod=test_rocm_bin_comes_after_the_package_folder>
+
+    def test_rocm_bin_comes_after_the_package_folder(self):
+        folder = self.package({"lib_dirs": ["rocm/bin"]})
+        self.assertEqual(dsv41_engine.lib_dirs(folder / EXE), [str(folder), str(folder / "rocm" / "bin")])
+        env = dsv41_engine.start_env(folder / EXE, {"PATH": "C:\\Windows"})
+        first = env["PATH"].split(os.pathsep)[:2]
+>       self.assertEqual(first, [str(folder), str(folder / "rocm" / "bin")])
+E       AssertionError: Lists differ: ['C', '\\Windows'] != ['/tmp/HIP_FIXTURE/0.1.51-win[93 chars]bin']
+E
+E       First differing element 0:
+E       'C'
+E       '/tmp/HIP_FIXTURE/0.1.51-windows-x86_64-hip-rdna3'
+E
+E       - ['C', '\\Windows']
+E       + ['/tmp/HIP_FIXTURE/0.1.51-windows-x86_64-hip-rdna3',
+E       +  '/tmp/HIP_FIXTURE/0.1.51-windows-x86_64-hip-rdna3/rocm/bin']
+
+tests/terminal/test_dsv41_engine.py:222: AssertionError
+=============================== warnings summary ===============================
+conftest.py:1
+  /src/conftest.py:1: DeprecationWarning: invalid escape sequence '\S'
+    """pytest: setup.py's data-folder migration (#198) saves the data folder it settled on in the user's settings file
+
+tests/terminal/test_private_files.py:213
+  /src/tests/terminal/test_private_files.py:213: DeprecationWarning: invalid escape sequence '\W'
+    self.assertFalse(pf.repair_access(os.environ.get("SystemRoot", "C:\Windows") + "\System32\drivers"))
+
+tests/terminal/test_private_files.py:213
+  /src/tests/terminal/test_private_files.py:213: DeprecationWarning: invalid escape sequence '\S'
+    self.assertFalse(pf.repair_access(os.environ.get("SystemRoot", "C:\Windows") + "\System32\drivers"))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/terminal/test_bundle_imports.py::BundleImports::test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle
+FAILED tests/terminal/test_dsv41_engine.py::HipPackageLibraryPath::test_rocm_bin_comes_after_the_package_folder
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 2 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+2 failed, 378 passed, 3 skipped, 3 warnings, 2 subtests passed in 111.18s (0:01:51)
+
+=== baseline-failures.log (complete log) ===
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ BundleImports.test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle _
+
+self = <test_bundle_imports.BundleImports testMethod=test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle>
+
+    def test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle(self):
+        modules = sorted(set(pt.setup_tool_imports(self.root)) | set(pt.INSTALLER_TOOLS))
+        code = ("import sys, os, importlib\n"
+                f"sys.path[:0] = [{str(self.root)!r}, {str(self.root / 'tools')!r}]\n"
+                "import setup\n"
+                f"for name in {modules!r}:\n"
+                "    module = importlib.import_module(name)\n"
+                f"    assert os.path.samefile(os.path.dirname(module.__file__), {str(self.root / 'tools')!r}), (name, module.__file__)\n"
+                "print('imports ok')\n")
+        env = {**os.environ, "STRATA_CONTROL_INSTALL": "1", "PYTHONNOUSERSITE": "1"}
+        for key in ("PYTHONPATH", "PYTHONHOME"):
+            env.pop(key, None)
+        done = subprocess.run([sys.executable, "-I", "-c", code], cwd=str(self.root.parent), env=env,
+                              capture_output=True, text=True, timeout=120)
+>       self.assertEqual(done.returncode, 0, (done.stdout or "") + (done.stderr or "")[-1500:])
+E       AssertionError: 1 != 0 : llama.cpp's gguf-py was not found. Set STRATA_GGUF_PY to the gguf-py folder of any llama.cpp checkout (<llama.cpp>/gguf-py), or run setup.py once (it downloads llama.cpp into third_party/ of the install folder; in the desktop app or the Terminal package that folder is STRATA_INSTALL_DIR, which this tool also looks in)
+
+tests/terminal/test_bundle_imports.py:88: AssertionError
+______ HipPackageLibraryPath.test_rocm_bin_comes_after_the_package_folder ______
+
+self = <test_dsv41_engine.HipPackageLibraryPath testMethod=test_rocm_bin_comes_after_the_package_folder>
+
+    def test_rocm_bin_comes_after_the_package_folder(self):
+        folder = self.package({"lib_dirs": ["rocm/bin"]})
+        self.assertEqual(dsv41_engine.lib_dirs(folder / EXE), [str(folder), str(folder / "rocm" / "bin")])
+        env = dsv41_engine.start_env(folder / EXE, {"PATH": "C:\\Windows"})
+        first = env["PATH"].split(os.pathsep)[:2]
+>       self.assertEqual(first, [str(folder), str(folder / "rocm" / "bin")])
+E       AssertionError: Lists differ: ['C', '\\Windows'] != ['/tmp/HIP_FIXTURE/0.1.51-win[93 chars]bin']
+E
+E       First differing element 0:
+E       'C'
+E       '/tmp/HIP_FIXTURE/0.1.51-windows-x86_64-hip-rdna3'
+E
+E       - ['C', '\\Windows']
+E       + ['/tmp/HIP_FIXTURE/0.1.51-windows-x86_64-hip-rdna3',
+E       +  '/tmp/HIP_FIXTURE/0.1.51-windows-x86_64-hip-rdna3/rocm/bin']
+
+tests/terminal/test_dsv41_engine.py:222: AssertionError
+=============================== warnings summary ===============================
+conftest.py:1
+  /src/conftest.py:1: DeprecationWarning: invalid escape sequence '\S'
+    """pytest: setup.py's data-folder migration (#198) saves the data folder it settled on in the user's settings file
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/terminal/test_bundle_imports.py::BundleImports::test_setup_py_and_each_of_its_tools_import_with_tools_limited_to_the_bundle
+FAILED tests/terminal/test_dsv41_engine.py::HipPackageLibraryPath::test_rocm_bin_comes_after_the_package_folder
+2 failed, 1 warning in 1.53s
+
+=== build-cpu-no-vocab-failure.log (selected failure lines; intermediate failure corrected before final checks) ===
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+print_info: n_vocab               = 0
+llama_model_load: error loading model: check_tensor_dims: tensor 'token_embd.weight' has wrong shape; expected     64,      0, got     64,     64,      1,      1
+
+=== reference-empty-callback-failure.log (selected failure lines; intermediate failure corrected before final checks) ===
+1/2 Test #200: muse_model_test ..................***Failed    0.13 sec
+muse_model_test: bad_function_call
+2/2 Test #201: muse_protocol_test ...............***Failed    2.12 sec

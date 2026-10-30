@@ -8,6 +8,10 @@ and cache selected experts on one or more NVIDIA cards. It uses the existing
 It does not change the Qwen engine or replace the Muse numerical reference.
 It does not promise 50 tokens per second.
 
+See the [three-GPU integration diagnostic](../bench/results/2026-10-30-muse-llama-integration/README.md)
+for recorded measurements, raw counters and untested cases. It is not a standard
+benchmark or a full-model chat-quality test.
+
 ## Build and check on CPU
 
 Run from this checkout. Use the build tools and Python packages described in

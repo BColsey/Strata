@@ -1,0 +1,24 @@
+Selected startup/context/shutdown lines from resident.stderr. PCI addresses redacted.
+
+[strata] 2026-10-30 11:36:16 engine started: /out/build-cuda/bin/strata-muse-llama --serve --model /model/Muse-Spark-Open-816B-A42B-UD-IQ1_S-00001-of-00005.gguf --max-context 128 --backend llama-cuda --gpu 0,1,2 --moe-cache-mib 10240 --threads 12
+ggml_cuda_init: found 3 CUDA devices (Total VRAM: 32603 MiB):
+  Device 0: NVIDIA GeForce RTX 2080 Ti, compute capability 7.5, VMM: yes, VRAM: 10820 MiB
+  Device 1: NVIDIA GeForce RTX 3080, compute capability 8.6, VMM: yes, VRAM: 9872 MiB
+  Device 2: NVIDIA GeForce RTX 3060, compute capability 8.6, VMM: yes, VRAM: 11909 MiB
+Muse llama device: CUDA0 NVIDIA GeForce RTX 2080 Ti
+Muse llama device: CUDA1 NVIDIA GeForce RTX 3080
+Muse llama device: CUDA2 NVIDIA GeForce RTX 3060
+llama_model_loader: additional 4 GGUFs metadata loaded.
+llama_model_loader: loaded meta data with 49 key-value pairs and 1429 tensors from /model/Muse-Spark-Open-816B-A42B-UD-IQ1_S-00001-of-00005.gguf (version GGUF V3 (latest))
+load_tensors: offloading output layer to GPU
+load_tensors: offloading 61 repeating layers to GPU
+load_tensors: offloaded 63/63 layers to GPU
+llama_context: n_ctx                 = 256
+llama_context: n_ctx_seq             = 256
+llama_context: n_ctx_seq (256) < n_ctx_train (1048576) -- the full capacity of the model will not be utilized
+Muse llama: requested_context=128 allocated_context=256 expert_cache_mib=10240 threads=12 pin=e09a78a25dec3f42175ad59ecc540a54bed0b9b2 library=0.8.0-dev
+~llama_context:      CUDA0 compute buffer size is   0.5092 MiB, matches expectation of   0.5092 MiB
+~llama_context:      CUDA1 compute buffer size is   0.4755 MiB, matches expectation of   0.4755 MiB
+~llama_context:      CUDA2 compute buffer size is   0.8777 MiB, matches expectation of   0.8777 MiB
+~llama_context:  CUDA_Host compute buffer size is   0.1428 MiB, matches expectation of   0.1428 MiB
+llama_moe_cache: ubatch <= 8: hits = 30945, misses = 18655, hit rate = 62.39%, uploaded = 174890.62 MiB

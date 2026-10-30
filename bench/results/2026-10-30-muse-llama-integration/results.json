@@ -1,0 +1,306 @@
+{
+  "status": "completed",
+  "binary_sha256": "a52f4eda3bdcb99e566ee9e880c12d866f1bae890ac43644a73f9cb917558378",
+  "args": [
+    "--model",
+    "/model/Muse-Spark-Open-816B-A42B-UD-IQ1_S-00001-of-00005.gguf",
+    "--max-context",
+    "128",
+    "--backend",
+    "llama-cuda",
+    "--gpu",
+    "0,1,2",
+    "--moe-cache-mib",
+    "10240",
+    "--threads",
+    "12"
+  ],
+  "trials": [
+    {
+      "trial": 0,
+      "tokens": [
+        15,
+        220,
+        703,
+        37,
+        25,
+        837,
+        28,
+        2241,
+        3399,
+        1144,
+        48827,
+        2191,
+        108141,
+        4424,
+        1635,
+        31949,
+        142462,
+        368,
+        703,
+        37,
+        25,
+        837,
+        28,
+        2241,
+        3399,
+        1144,
+        48827,
+        2191,
+        108141,
+        4424,
+        1635,
+        31949
+      ],
+      "native_counters": {
+        "generated": 32,
+        "prompt_tokens": 1,
+        "prompt_ms": 7458.88,
+        "decode_ms": 46394.1,
+        "finish": "length"
+      },
+      "request_wall_s": 53.858327084220946,
+      "decode_forward_steps": 31,
+      "actual_decode_steps_s": 0.6681884118885807
+    },
+    {
+      "trial": 1,
+      "tokens": [
+        15,
+        220,
+        703,
+        37,
+        25,
+        837,
+        28,
+        2241,
+        3399,
+        1144,
+        48827,
+        2191,
+        108141,
+        4424,
+        1635,
+        31949,
+        142462,
+        368,
+        703,
+        37,
+        25,
+        837,
+        28,
+        2241,
+        3399,
+        1144,
+        48827,
+        2191,
+        108141,
+        4424,
+        1635,
+        31949
+      ],
+      "native_counters": {
+        "generated": 32,
+        "prompt_tokens": 1,
+        "prompt_ms": 1733.21,
+        "decode_ms": 15786.9,
+        "finish": "length"
+      },
+      "request_wall_s": 17.520716187078506,
+      "decode_forward_steps": 31,
+      "actual_decode_steps_s": 1.963653408838974
+    },
+    {
+      "trial": 2,
+      "tokens": [
+        15,
+        220,
+        703,
+        37,
+        25,
+        837,
+        28,
+        2241,
+        3399,
+        1144,
+        48827,
+        2191,
+        108141,
+        4424,
+        1635,
+        31949,
+        142462,
+        368,
+        703,
+        37,
+        25,
+        837,
+        28,
+        2241,
+        3399,
+        1144,
+        48827,
+        2191,
+        108141,
+        4424,
+        1635,
+        31949
+      ],
+      "native_counters": {
+        "generated": 32,
+        "prompt_tokens": 1,
+        "prompt_ms": 1175.09,
+        "decode_ms": 15441.3,
+        "finish": "length"
+      },
+      "request_wall_s": 16.616546248085797,
+      "decode_forward_steps": 31,
+      "actual_decode_steps_s": 2.0076029867951535
+    }
+  ],
+  "limits": "BOS diagnostic, short generation, not normal-chat quality; cache retained across resident requests. No speculation.",
+  "bos": {
+    "wall_seconds_including_load": 187.26873621111736,
+    "argmax": 15,
+    "max_abs_error_vs_prior_cuda": 0.0,
+    "rmse_vs_prior_cuda": 0.0,
+    "cosine_vs_prior_cuda": 1.0,
+    "elementwise_atol_rtol": 2e-05,
+    "generated_tokens": [
+      15,
+      220
+    ]
+  },
+  "resident_load_seconds": 182.74792463192716,
+  "info": {
+    "version": "muse-llama",
+    "arch": "muse-spark",
+    "backend": "llama-cuda",
+    "engine": "muse-llama",
+    "batch_slots": 0,
+    "logprobs": 0,
+    "prefix_cache": 0,
+    "drafting": "off",
+    "drafting_note": ""
+  },
+  "gpu_allocations_after_ready": "uuid, name, memory.used [MiB], memory.free [MiB]\nGPU_UUID_0, NVIDIA GeForce RTX 2080 Ti, 9214 MiB, 1608 MiB\nGPU_UUID_1, NVIDIA GeForce RTX 3080, 9508 MiB, 366 MiB\nGPU_UUID_2, NVIDIA GeForce RTX 3060, 10200 MiB, 1710 MiB\n",
+  "cancellation": {
+    "tokens": [
+      15
+    ],
+    "counters": {
+      "generated": 1,
+      "prompt_tokens": 1,
+      "prompt_ms": 1174.74,
+      "decode_ms": 819.043,
+      "finish": "cancel"
+    }
+  },
+  "after_cancel_replay": [
+    15,
+    220
+  ],
+  "resident_exit_code": 0,
+  "provenance": {
+    "measurement_date": "2026-10-30",
+    "implementation_commit": "ce32b8f3ba70e170c61548769bf7238c2c308fc8",
+    "base_commit": "2e45edc5865288ed511d192bcfd8b1d92855fe77",
+    "source_sha256": {
+      "docs/MUSE_LLAMA.md": "d0c36245693a95aeede95939b0be654915273140c29d6bb2b3f9074873c96c06",
+      "docs/MUSE_SPARK.md": "ae550a2cabaa2da286ab1e08f6f3161ac32e7b6b06424069ad0a5bce2671ee53",
+      "include/strata/muse/model.hpp": "758b443d552b53480919e402c97f35e9ae9490a5117e67f133c5cb0339580148",
+      "serve/test_muse_engine.py": "514b1dc736219caede33945f6e1c856834d7f928677a0573962d47cd793cf339",
+      "src/muse/CMakeLists.txt": "b6731b018e2a8b8970e5d4c4dc5a06084d3b3b07538d095cd9b0249f911118fb",
+      "src/muse/llama/CMakeLists.txt": "e7949525d06bb1d75911766429d4303ad66b234fc99ecda7bb678b85c443d6c5",
+      "src/muse/llama/main.cpp": "01703eda5f7ed7358dc0423353b5061d930035d2ae62f6b74e524b75d47e2311",
+      "src/muse/model.cpp": "99d164cba6ba83f0e2c548e7e2ef3fc876eb7345820b8a4aad09d01a3b370a0c",
+      "src/muse/protocol.cpp": "4b322feeb3886f5d17e45e16270bf9577847b849964ae1b6b0ca659ac0eb9f3e",
+      "src/muse/runtime.cpp": "01f8f4434d1b2b40d5d988d030c31f9d144dbfd6a92fb856f287239687e8a791",
+      "src/muse/test_protocol.py": "16e2ddb68fdf87b8651ccf39f297859711579ce6d1faf82992079eb0afa00176",
+      "strata_cli/launch/runner.py": "1c029375e173c0c1aca0973ca1ba2893bb67818fdc2f20744b1f61919e9fe0f8",
+      "strata_control/muse.py": "5e94439a281123f1b74a2c364db5d37cb40784b0a1307e9fd031c7299c5a210f",
+      "tests/terminal/test_launch_muse.py": "1354fd955f734b7c57e372dbaf39112ddfaad433d023061e190e025b516ff8d3",
+      "tools/muse/chat_fixture.py": "3ba698f38b3741bdc14d432a7ad5b87e2b537f1886261031be4a0f0efda1f033",
+      "tools/muse/fixture.py": "288f3d6d68e60bccfe9fc5e54661aca4204cc629d7123888e7f858971477f552",
+      "tools/muse/test_llama_backend.py": "d60ed54cdd5d94c86133e9e3450fe3408a9ae0988c6a1b84759b422a86a8b2ee"
+    },
+    "source_note": "Engine sources match the implementation commit. The full-model probe preceded final launcher diagnostic/test-only edits; the final launcher/server regression check is recorded separately.",
+    "llama_cpp_revision": "e09a78a25dec3f42175ad59ecc540a54bed0b9b2",
+    "llama_archive_sha256": "398e341ee555ba87d829b3ee9482048d62dd80859bec81e2459325ee18211dc5",
+    "model_repository": "unsloth/Muse-Spark-Open-816B-A42B-GGUF",
+    "model_revision": "c00670568b6ce5e56a247f67091247984df2a01e",
+    "checkpoint_bytes": 175639574392,
+    "model_shards": 5,
+    "container_image_id": "sha256:65707c4efb80cf423fc5370181b0f5639b51997f7f4f1ffbc04ff2826bd261f8",
+    "software": {
+      "platform": "Linux x86_64",
+      "compiler": "GNU 13.3.0",
+      "cuda_toolkit": "13.0.48",
+      "python": "3.12.3",
+      "cuda_architectures": [
+        75,
+        86
+      ],
+      "driver_version": null,
+      "host_distribution": null
+    },
+    "hardware": {
+      "cpu": "Ryzen 9 3900X",
+      "installed_ram_approx_decimal_gb": 64,
+      "selected_gpus": [
+        "RTX 2080 Ti 11 GiB",
+        "RTX 3080 10 GiB",
+        "RTX 3060 12 GiB"
+      ],
+      "pcie_link_widths": [
+        4,
+        8,
+        4
+      ],
+      "storage_device": null,
+      "power_limits": null,
+      "clock_settings": null
+    },
+    "limits": {
+      "cpu_quota": 12,
+      "memory_gib": 48,
+      "swap_gib": 0,
+      "network": "none",
+      "model_mount": "read-only",
+      "moe_cache_mib_total": 10240,
+      "requested_context": 128,
+      "allocated_context": 256,
+      "kv_type": "f32",
+      "flash_attention": false
+    },
+    "workload": {
+      "prompt_tokens": [
+        200000
+      ],
+      "max_generated_tokens": 32,
+      "temperature": 0,
+      "speculation": false,
+      "kv_cleared_between_requests": true,
+      "expert_cache_retained_between_requests": true,
+      "controlled_cold_cache": false,
+      "other_model_services": "Qwen stopped; no other model benchmark running"
+    },
+    "validation_exit_codes": {
+      "build-cpu-exit.txt": 0,
+      "build-cpu-no-vocab-exit.txt": 8,
+      "build-cuda-exit.txt": 0,
+      "gpu-synthetic-exit.txt": 0,
+      "hip-build-exit.txt": 0,
+      "hip-tests-exit.txt": 0,
+      "http-and-unit-exit.txt": 0,
+      "launch-regressions-exit.txt": 0,
+      "precommit-launch-exit.txt": 0,
+      "real-exit.txt": 0,
+      "reference-check-exit.txt": 0,
+      "reference-empty-callback-exit.txt": 8,
+      "terminal-exit.txt": null
+    },
+    "sanitization": "GPU UUIDs replaced by stable labels; no timing, generated token or exit-status values changed. Null software/hardware fields were not captured with the probe. Full logits and model files are not bundled.",
+    "probe_sha256": "6ba0fa9b7585d6c70bd63de7271699ba344fbc0e622dd236d3983c3c2c44ed94"
+  }
+}
